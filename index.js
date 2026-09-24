@@ -32,7 +32,50 @@ const DEFAULTS = Object.freeze({
     historySize: 30,
     snippet: 44,
     btnPos: Object.freeze({ x: 0, y: 0.72, edge: 'left' }),
+    // appearance of the floating button
+    btnStyle: 'classic',             // see BTN_STYLES
+    btnSize: 40,                     // px
+    iconScale: 42,                   // % of the button
+    btnIcon: 'fa-solid fa-book-atlas',
+    iconColor: 'body',               // see COLOR_SOURCES
+    bgColor: 'tint',
+    borderColor: 'border',
+    accentColor: 'quote',            // number badge + highlights in the panel
+    customColors: Object.freeze({ icon: '#ffffff', bg: '#1e1e28', border: '#777777', accent: '#e18a24' }),
+    bgOpacity: 75,                   // % — button background
+    idleOpacity: 100,                // % — whole button while not touched
+    shadow: true,
+    blur: false,
+    hideZero: false,
 });
+
+const BTN_STYLES = Object.freeze({
+    classic: ['คลาสสิก', 'ไอคอน + ตัวเลขมุมขวาล่าง'],
+    minimal: ['มินิมอล', 'ตัวเลขอย่างเดียว'],
+    pill: ['แคปซูล', 'ไอคอนกับตัวเลขเรียงกัน'],
+    tab: ['แถบขอบจอ', 'ติดขอบจอแบบที่คั่นหนังสือ กินที่น้อย'],
+    ring: ['วงแหวน', 'ตัวเลขกลาง วงแหวนเทียบกับครั้งที่ติดมากที่สุดในแชทนี้'],
+});
+
+const COLOR_SOURCES = Object.freeze({
+    body: ['ตัวอักษรหลัก (Main Text)', '--SmartThemeBodyColor'],
+    em: ['ตัวเอียง (Italics)', '--SmartThemeEmColor'],
+    underline: ['ขีดเส้นใต้ (Underline)', '--SmartThemeUnderlineColor'],
+    quote: ['คำพูด (Quote)', '--SmartThemeQuoteColor'],
+    tint: ['พื้นเบลอ (UI Background)', '--SmartThemeBlurTintColor'],
+    chat: ['พื้นแชท (Chat Background)', '--SmartThemeChatTintColor'],
+    border: ['ขอบ (UI Border)', '--SmartThemeBorderColor'],
+    shadow: ['เงา (Shadow)', '--SmartThemeShadowColor'],
+    custom: ['กำหนดเอง…', null],
+});
+
+const ICONS = [
+    'fa-solid fa-book-atlas', 'fa-solid fa-book', 'fa-solid fa-book-open', 'fa-solid fa-book-bookmark', 'fa-solid fa-scroll',
+    'fa-solid fa-bookmark', 'fa-solid fa-magnifying-glass', 'fa-solid fa-eye', 'fa-solid fa-key', 'fa-solid fa-feather',
+    'fa-solid fa-globe', 'fa-solid fa-earth-asia', 'fa-solid fa-map', 'fa-solid fa-compass', 'fa-solid fa-lightbulb',
+    'fa-solid fa-wand-magic-sparkles', 'fa-solid fa-gem', 'fa-solid fa-moon', 'fa-solid fa-dragon', 'fa-solid fa-cat',
+    '📖', '📜', '🔍', '🗝️', '🔮', '🌸', '🍀', '✨',
+];
 
 const LOGIC = ['AND ANY', 'NOT ALL', 'NOT ANY', 'AND ALL'];
 const LOGIC_TH = ['มีคีย์รองอย่างน้อย 1', 'ขาดคีย์รองอย่างน้อย 1', 'ไม่มีคีย์รองเลย', 'มีคีย์รองครบทุกตัว'];
@@ -84,6 +127,7 @@ function settings() {
     for (const [k, v] of Object.entries(DEFAULTS)) {
         if (s[k] === undefined) s[k] = v && typeof v === 'object' ? { ...v } : v;
     }
+    s.customColors = { ...DEFAULTS.customColors, ...(s.customColors || {}) };
     return s;
 }
 const save = () => ctx().saveSettingsDebounced();
@@ -630,35 +674,113 @@ async function loadChat() {
 let button = null;
 let alertState = '';
 
+
+function iconHTML(icon) {
+    const v = String(icon ?? '').trim();
+    if (/(^|\s)fa-/.test(v)) return `<i class="${esc(v.replace(/[^\w\s-]/g, ''))}"></i>`;
+    return `<span class="ll_emoji">${esc(v || '📖')}</span>`;
+}
+
+function cleanIcon(v) {
+    v = String(v ?? '').trim();
+    if (/(^|\s)fa-/.test(v)) return v.replace(/[^\w\s-]/g, '').replace(/\s+/g, ' ');
+    return v.slice(0, 8);
+}
+
+function colorValue(key, which) {
+    const s = settings();
+    if (key === 'custom') return s.customColors[which] || DEFAULTS.customColors[which];
+    const v = COLOR_SOURCES[key]?.[1];
+    return v ? `var(${v})` : null;
+}
+
+const btnStyle = () => (BTN_STYLES[settings().btnStyle] ? settings().btnStyle : 'classic');
+
+/** Button markup shared by the real button and the previews in the settings drawer. */
+const BTN_INNER = '<span class="ll_ring"></span><span class="ll_ic"></span><span class="ll_count"></span>';
+
+/** Colours, size and style as CSS variables/classes on a button (real or preview). */
+function styleButton(el, style = btnStyle()) {
+    const s = settings();
+    const set = (k, v) => el.style.setProperty(k, v);
+    set('--ll-size', `${clamp(Number(s.btnSize) || DEFAULTS.btnSize, 24, 80)}px`);
+    set('--ll-icon', String(clamp(Number(s.iconScale) || DEFAULTS.iconScale, 25, 75) / 100));
+    set('--ll-fg', colorValue(s.iconColor, 'icon') ?? 'var(--SmartThemeBodyColor)');
+    set('--ll-bg', colorValue(s.bgColor, 'bg') ?? 'var(--SmartThemeBlurTintColor)');
+    set('--ll-border', colorValue(s.borderColor, 'border') ?? 'var(--SmartThemeBorderColor)');
+    set('--ll-accent', colorValue(s.accentColor, 'accent') ?? 'var(--SmartThemeQuoteColor)');
+    set('--ll-bg-op', `${clamp(Number.isFinite(Number(s.bgOpacity)) ? Number(s.bgOpacity) : DEFAULTS.bgOpacity, 0, 100)}%`);
+    set('--ll-idle-op', String(clamp(Number(s.idleOpacity) || 100, 15, 100) / 100));
+    for (const k of Object.keys(BTN_STYLES)) el.classList.toggle(`ll_s_${k}`, style === k);
+    el.classList.toggle('ll_noshadow', !s.shadow);
+    el.classList.toggle('ll_blur', !!s.blur);
+    const ic = el.querySelector('.ll_ic');
+    const icon = s.btnIcon || DEFAULTS.btnIcon;
+    if (ic && ic.dataset.icon !== icon) { ic.innerHTML = iconHTML(icon); ic.dataset.icon = icon; }
+}
+
+/** Number shown on a button; `ratio` (0–1) fills the ring style. */
+function setCount(el, n, ratio) {
+    const hide = n == null || (n === 0 && settings().hideZero && btnStyle() === 'classic');
+    el.querySelector('.ll_count').textContent = hide ? '' : String(n);
+    el.classList.toggle('ll_zero', n === 0);
+    el.classList.toggle('ll_nodata', n == null);
+    el.style.setProperty('--ll-ratio', String(clamp(Number(ratio) || 0, 0, 1)));
+}
+
 function buildButton() {
     button = document.createElement('div');
     button.id = 'll_button';
+    button.className = 'll_btn';
     button.setAttribute('role', 'button');
     button.tabIndex = 0;
     button.title = 'Lore Lens — เอนทรีที่ติดและคีย์เวิร์ดที่ทำให้ติด';
-    button.innerHTML = '<i class="fa-solid fa-book-atlas"></i><span class="ll_count"></span>';
+    button.innerHTML = BTN_INNER;
     button.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleSheet(); } });
     makeDraggable(button);
     document.body.appendChild(button);
-    placeButton();
+    applyLook();
     window.addEventListener('resize', () => placeButton());
+    // Quick Dock moves the button in and out of its tray: re-apply the edge/tab layout.
+    new MutationObserver(() => { syncEdge(); placeButton(); }).observe(button, { attributes: true, attributeFilter: ['data-qd-tray'] });
 }
 
 const docked = () => !!button?.closest('#qd_panel') || !!button?.dataset.qdTray;
+
+function applyLook() {
+    if (!button) return;
+    styleButton(button);
+    syncEdge();
+    updateButton();
+    placeButton();
+    renderLookPreviews();
+    // the panel's highlight colour follows the badge colour
+    sheet?.style.setProperty('--ll-accent', colorValue(settings().accentColor, 'accent') ?? 'var(--SmartThemeQuoteColor)');
+}
+
+function syncEdge() {
+    if (!button) return;
+    const edge = docked() ? '' : (settings().btnPos?.edge ?? '');
+    for (const e of ['left', 'right', 'top', 'bottom']) button.classList.toggle(`ll_edge_${e}`, edge === e);
+}
 
 function updateButton() {
     if (!button) return;
     const s = settings();
     const last = history[0];
     const n = last ? last.hits.length : null;
-    button.querySelector('.ll_count').textContent = n == null ? '' : String(n);
+    // ring style: this scan compared with the busiest scan of this chat
+    const most = Math.max(1, ...history.map(h => h.hits.length));
+    setCount(button, n, n == null ? 0 : n / most);
     button.classList.toggle('ll_hidden', !s.enabled || !s.showButton);
-    button.classList.toggle('ll_zero', n === 0);
     if (alertState) button.dataset.state = alertState; else delete button.dataset.state;
     button.title = last
         ? `Lore Lens — ติด ${last.hits.length} เอนทรี${last.overflow ? ' · งบ token เต็ม!' : ''}`
         : 'Lore Lens — เอนทรีที่ติดและคีย์เวิร์ดที่ทำให้ติด';
 }
+
+/** Gap to the screen edge: the tab style sits flush against it. */
+const edgeGap = () => (btnStyle() === 'tab' ? 0 : EDGE);
 
 function placeButton() {
     if (!button || docked() || button.classList.contains('ll_dragging')) return;
@@ -666,13 +788,14 @@ function placeButton() {
     const vw = de.clientWidth || innerWidth, vh = de.clientHeight || innerHeight;
     const w = button.offsetWidth || 40, h = button.offsetHeight || 40;
     const p = settings().btnPos ?? DEFAULTS.btnPos;
-    const tx = Math.max(0, vw - w - 2 * EDGE), ty = Math.max(0, vh - h - 2 * EDGE);
-    let left = EDGE + clamp(Number(p.x) || 0, 0, 1) * tx;
-    let top = EDGE + clamp(Number(p.y) || 0, 0, 1) * ty;
-    if (p.edge === 'left') left = EDGE;
-    if (p.edge === 'right') left = EDGE + tx;
-    if (p.edge === 'top') top = EDGE;
-    if (p.edge === 'bottom') top = EDGE + ty;
+    const g = edgeGap();
+    const tx = Math.max(0, vw - w - 2 * g), ty = Math.max(0, vh - h - 2 * g);
+    let left = g + clamp(Number(p.x) || 0, 0, 1) * tx;
+    let top = g + clamp(Number(p.y) || 0, 0, 1) * ty;
+    if (p.edge === 'left') left = g;
+    if (p.edge === 'right') left = g + tx;
+    if (p.edge === 'top') top = g;
+    if (p.edge === 'bottom') top = g + ty;
     button.style.left = `${Math.round(left)}px`;
     button.style.top = `${Math.round(top)}px`;
 }
@@ -688,7 +811,10 @@ function makeDraggable(el) {
         if (!start || e.pointerId !== start.id || docked()) return;
         const dx = e.clientX - start.x, dy = e.clientY - start.y;
         if (!dragged && Math.hypot(dx, dy) < 7) return;
-        if (!dragged) { try { el.setPointerCapture(e.pointerId); } catch { /* ignore */ } }
+        if (!dragged) {
+            try { el.setPointerCapture(e.pointerId); } catch { /* ignore */ }
+            for (const k of ['left', 'right', 'top', 'bottom']) el.classList.remove(`ll_edge_${k}`);
+        }
         dragged = true;
         el.classList.add('ll_dragging');
         const de = document.documentElement;
@@ -705,13 +831,15 @@ function makeDraggable(el) {
         const r = el.getBoundingClientRect();
         const dist = { left: r.left, right: vw - r.right, top: r.top, bottom: vh - r.bottom };
         const edge = Object.keys(dist).reduce((a, b) => (dist[b] < dist[a] ? b : a));
+        const g = edgeGap();
         settings().btnPos = {
-            x: clamp((r.left - EDGE) / Math.max(1, vw - r.width - 2 * EDGE), 0, 1),
-            y: clamp((r.top - EDGE) / Math.max(1, vh - r.height - 2 * EDGE), 0, 1),
+            x: clamp((r.left - g) / Math.max(1, vw - r.width - 2 * g), 0, 1),
+            y: clamp((r.top - g) / Math.max(1, vh - r.height - 2 * g), 0, 1),
             edge,
         };
         save();
-        placeButton();
+        syncEdge();
+        requestAnimationFrame(placeButton); // the tab style changes shape with the edge
     };
     el.addEventListener('pointerup', end);
     el.addEventListener('pointercancel', end);
@@ -1355,6 +1483,24 @@ async function onBodyClick(e) {
 
 // ---------------------------------------------------------------- settings drawer
 
+function colorRow(id, label) {
+    return `<label for="${id}">${label}</label>
+        <div class="ll_colorpick">
+            <select id="${id}" class="text_pole">${Object.entries(COLOR_SOURCES).map(([k, [name]]) => `<option value="${k}">${esc(name)}</option>`).join('')}</select>
+            <input type="color" id="${id}_pick" aria-label="${label} (กำหนดเอง)">
+        </div>`;
+}
+
+/** The style chooser in the settings drawer draws each style with the current colours. */
+function renderLookPreviews() {
+    document.querySelectorAll('#ll_styles .ll_preview').forEach(el => {
+        styleButton(el, el.dataset.style);
+        el.style.setProperty('--ll-size', `${Math.min(46, clamp(Number(settings().btnSize) || DEFAULTS.btnSize, 24, 80))}px`);
+        el.classList.add('ll_edge_left');
+        setCount(el, 7, 0.7);
+    });
+}
+
 function renderSettings() {
     const host = document.getElementById('extensions_settings2') ?? document.getElementById('extensions_settings');
     if (!host) return;
@@ -1378,6 +1524,41 @@ function renderSettings() {
                     <label for="ll_snip">ความยาวบริบทรอบคีย์ (ตัวอักษร)</label>
                     <input type="number" id="ll_snip" class="text_pole" min="16" max="160" step="4">
                 </div>
+                <div class="ll_set_title">หน้าตาปุ่ม</div>
+                <div id="ll_styles" class="ll_styles" role="radiogroup" aria-label="รูปแบบปุ่ม">${Object.entries(BTN_STYLES).map(([k, [name, hint]]) => `
+                    <div class="ll_style_opt" role="radio" tabindex="0" data-style="${k}" title="${esc(hint)}">
+                        <div class="ll_style_stage"><div class="ll_btn ll_preview" data-style="${k}">${BTN_INNER}</div></div>
+                        <span>${esc(name)}</span>
+                    </div>`).join('')}
+                </div>
+                <small id="ll_style_hint" class="ll_setnote"></small>
+                <div class="ll_set_grid">
+                    <label for="ll_size">ขนาดปุ่ม (px)</label>
+                    <input type="number" id="ll_size" class="text_pole" min="24" max="80" step="1">
+                    <label for="ll_iconscale">ขนาดไอคอน/ตัวเลข</label>
+                    <div class="ll_range"><input type="range" id="ll_iconscale" min="25" max="75" step="1"><output id="ll_iconscale_out"></output></div>
+                    ${colorRow('ll_c_icon', 'สีไอคอน')}
+                    ${colorRow('ll_c_bg', 'สีพื้นปุ่ม')}
+                    ${colorRow('ll_c_border', 'สีขอบ')}
+                    ${colorRow('ll_c_accent', 'สีตัวเลข / สีเน้น')}
+                    <label for="ll_bgop">ความทึบพื้นปุ่ม</label>
+                    <div class="ll_range"><input type="range" id="ll_bgop" min="0" max="100" step="5"><output id="ll_bgop_out"></output></div>
+                    <label for="ll_idleop" title="ความทึบของทั้งปุ่มตอนไม่ได้แตะ — แตะ/ชี้แล้วจะชัด 100% และจะชัดเสมอเมื่อมีการเตือน">ความทึบตอนไม่ได้ใช้</label>
+                    <div class="ll_range"><input type="range" id="ll_idleop" min="15" max="100" step="5"><output id="ll_idleop_out"></output></div>
+                </div>
+                <div class="ll_set_title ll_sub">ไอคอน</div>
+                <div class="ll_set_iconrow">
+                    <span id="ll_icon_prev" class="ll_set_iconprev"></span>
+                    <input type="text" id="ll_icon" class="text_pole" placeholder="อีโมจิ หรือ fa-solid fa-book">
+                </div>
+                <div id="ll_icon_grid" class="ll_icongrid">${ICONS.map(ic => `<div class="ll_ic_opt" role="button" tabindex="0" data-icon="${esc(ic)}" title="${esc(ic)}">${iconHTML(ic)}</div>`).join('')}</div>
+                <label class="checkbox_label"><input type="checkbox" id="ll_shadow"> เงาใต้ปุ่ม</label>
+                <label class="checkbox_label" title="สวยขึ้นบนพื้นหลังที่มีลาย แต่กินแรงเครื่อง"><input type="checkbox" id="ll_blurbg"> เบลอพื้นหลังใต้ปุ่ม</label>
+                <label class="checkbox_label"><input type="checkbox" id="ll_hidezero"> ซ่อนตัวเลขเมื่อไม่มีเอนทรีติด (แบบคลาสสิก)</label>
+                <div class="ll_set_btns">
+                    <div id="ll_look_reset" class="menu_button"><i class="fa-solid fa-rotate-left"></i> คืนค่าหน้าตาเริ่มต้น</div>
+                </div>
+                <div class="ll_set_title">อื่น ๆ</div>
                 <div class="ll_set_btns">
                     <div id="ll_open" class="menu_button"><i class="fa-solid fa-book-atlas"></i> เปิด Lore Lens</div>
                     <div id="ll_resetpos" class="menu_button"><i class="fa-solid fa-crosshairs"></i> รีเซ็ตตำแหน่งปุ่ม</div>
@@ -1411,7 +1592,100 @@ function renderSettings() {
     num('ll_hist', 'historySize', 5, 200);
     num('ll_snip', 'snippet', 16, 160);
     $('ll_open').addEventListener('click', () => openSheet());
-    $('ll_resetpos').addEventListener('click', () => { s.btnPos = { ...DEFAULTS.btnPos }; save(); placeButton(); });
+    $('ll_resetpos').addEventListener('click', () => { s.btnPos = { ...DEFAULTS.btnPos }; save(); applyLook(); });
+
+    // ---- appearance
+    const styles = $('ll_styles');
+    const showStyle = () => {
+        styles.querySelectorAll('.ll_style_opt').forEach(o => {
+            const on = o.dataset.style === btnStyle();
+            o.classList.toggle('ll_sel', on);
+            o.setAttribute('aria-checked', String(on));
+        });
+        $('ll_style_hint').textContent = BTN_STYLES[btnStyle()][1];
+    };
+    const pickStyle = e => {
+        const o = e.target.closest('.ll_style_opt');
+        if (!o || (e.type === 'keydown' && e.key !== 'Enter' && e.key !== ' ')) return;
+        e.preventDefault();
+        s.btnStyle = o.dataset.style;
+        save();
+        showStyle();
+        applyLook();
+    };
+    styles.addEventListener('click', pickStyle);
+    styles.addEventListener('keydown', pickStyle);
+    showStyle();
+
+    const look = (id, key, lo, hi) => {
+        $(id).value = s[key];
+        $(id).addEventListener('change', e => {
+            const v = Math.round(Number(e.target.value));
+            s[key] = Number.isFinite(v) ? clamp(v, lo, hi) : DEFAULTS[key];
+            e.target.value = s[key];
+            save();
+            applyLook();
+        });
+    };
+    look('ll_size', 'btnSize', 24, 80);
+    const range = id => key => {
+        const out = $(`${id}_out`);
+        const show = () => { $(id).value = s[key]; out.textContent = `${s[key]}%`; };
+        show();
+        $(id).addEventListener('input', e => { s[key] = Number(e.target.value); out.textContent = `${s[key]}%`; save(); applyLook(); });
+        return show;
+    };
+    const showRanges = [range('ll_iconscale')('iconScale'), range('ll_bgop')('bgOpacity'), range('ll_idleop')('idleOpacity')];
+
+    const colorInputs = [['ll_c_icon', 'iconColor', 'icon'], ['ll_c_bg', 'bgColor', 'bg'], ['ll_c_border', 'borderColor', 'border'], ['ll_c_accent', 'accentColor', 'accent']];
+    const showColors = () => colorInputs.forEach(([id, key, which]) => {
+        $(id).value = s[key];
+        $(`${id}_pick`).value = s.customColors[which];
+        $(`${id}_pick`).hidden = s[key] !== 'custom';
+    });
+    for (const [id, key, which] of colorInputs) {
+        $(id).addEventListener('change', e => { s[key] = e.target.value; save(); showColors(); applyLook(); });
+        $(`${id}_pick`).addEventListener('input', e => { s.customColors[which] = e.target.value; save(); applyLook(); });
+    }
+    showColors();
+
+    const setIcon = v => {
+        s.btnIcon = cleanIcon(v) || DEFAULTS.btnIcon;
+        save();
+        $('ll_icon').value = s.btnIcon;
+        $('ll_icon_prev').innerHTML = iconHTML(s.btnIcon);
+        applyLook();
+    };
+    $('ll_icon').value = s.btnIcon;
+    $('ll_icon_prev').innerHTML = iconHTML(s.btnIcon);
+    $('ll_icon').addEventListener('change', e => setIcon(e.target.value));
+    $('ll_icon_grid').addEventListener('click', e => {
+        const ic = e.target.closest('[data-icon]')?.dataset.icon;
+        if (ic) setIcon(ic);
+    });
+
+    const lookCheck = (id, key) => {
+        $(id).checked = !!s[key];
+        $(id).addEventListener('change', e => { s[key] = e.target.checked; save(); applyLook(); });
+    };
+    lookCheck('ll_shadow', 'shadow');
+    lookCheck('ll_blurbg', 'blur');
+    lookCheck('ll_hidezero', 'hideZero');
+
+    $('ll_look_reset').addEventListener('click', () => {
+        for (const k of ['btnStyle', 'btnSize', 'iconScale', 'btnIcon', 'iconColor', 'bgColor', 'borderColor', 'accentColor', 'bgOpacity', 'idleOpacity', 'shadow', 'blur', 'hideZero']) s[k] = DEFAULTS[k];
+        s.customColors = { ...DEFAULTS.customColors };
+        save();
+        $('ll_size').value = s.btnSize;
+        $('ll_icon').value = s.btnIcon;
+        $('ll_icon_prev').innerHTML = iconHTML(s.btnIcon);
+        for (const [id, key] of [['ll_shadow', 'shadow'], ['ll_blurbg', 'blur'], ['ll_hidezero', 'hideZero']]) $(id).checked = !!s[key];
+        showRanges.forEach(f => f());
+        showColors();
+        showStyle();
+        applyLook();
+    });
+    renderLookPreviews();
     $('ll_wipe').addEventListener('click', async () => {
         if (!confirm('ล้างประวัติ Lore Lens ของทุกแชท?')) return;
         await dbClearAll();
@@ -1454,6 +1728,7 @@ async function init() {
 
     buildButton();
     buildSheet();
+    applyLook();
     renderSettings();
     registerCommands();
     updateButton();
@@ -1476,6 +1751,7 @@ globalThis.LoreLens = {
     history: () => history,
     catalog: () => catalog,
     report: reportMarkdown,
+    applyLook,
     _findKey: findKey,
 };
 
