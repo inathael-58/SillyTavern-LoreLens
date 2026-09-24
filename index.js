@@ -47,6 +47,9 @@ const DEFAULTS = Object.freeze({
     shadow: true,
     blur: false,
     hideZero: false,
+    // per-message report
+    mesButton: true,                 // button in each bot message's “…” menu
+    reportContent: true,             // include the entries' inserted text
 });
 
 const BTN_STYLES = Object.freeze({
@@ -362,7 +365,9 @@ function baseRecord(e) {
 
 function analyzeHit(a, run) {
     const e = a.entry;
-    const rec = { ...baseRecord(e), loop: a.loop, state: a.state };
+    const rec = { ...baseRecord(e), loop: a.loop, state: a.state, pos: e.position, depth: e.depth, order: e.order };
+    // the text that actually went into the prompt (macros already substituted by the engine)
+    if (e.content) rec.content = String(e.content).slice(0, 4000);
     const span = clamp(Number(settings().snippet) || DEFAULTS.snippet, 16, 160);
     if (e.decorators?.includes?.('@@activate')) rec.reason = 'decorator';
     else if (run.forced.has(rec.k)) rec.reason = 'forced';
@@ -460,6 +465,21 @@ function onGenerationStarted(type, _opts, dryRun) {
     gen.dry = !!dryRun;
     gen.pending = !dryRun;
     forced.clear();
+    // a new visible generation: whatever scan was waiting for its reply never got one
+    if (!dryRun && gen.type !== 'quiet') pendingLink = null;
+}
+
+/** The scan whose reply is being generated; linked to the message when it arrives. */
+let pendingLink = null;
+
+function onMessageReceived(id, type) {
+    if (!pendingLink || type === 'first_message') return;
+    const m = ctx().chat?.[id];
+    if (!m || m.is_user) return;
+    pendingLink.msg = { id: Number(id), swipe: Number(m.swipe_id ?? 0), date: String(m.send_date ?? '') };
+    pendingLink = null;
+    persistSoon();
+    if (isOpen()) render();
 }
 
 function onForceActivate(entries) {
@@ -551,6 +571,7 @@ function commit(r) {
     catalog = r.catalog.filter(x => !x.entry.disable && !x.entry.constant && Array.isArray(x.entry.key) && x.entry.key.length)
         .map(x => ({ k: x.k, world: x.entry.world, uid: x.entry.uid, title: titleOf(x.entry).slice(0, 120), keys: x.entry.key.filter(Boolean).slice(0, 12) }));
     history.unshift(rec);
+    if (!['quiet', 'impersonate'].includes(rec.genType)) pendingLink = rec;
     history.length = Math.min(history.length, clamp(Number(settings().historySize) || DEFAULTS.historySize, 5, 200));
     view.index = 0;
     if (settings().alertOverflow && rec.overflow) alertState = 'attention';
@@ -660,6 +681,7 @@ async function loadChat() {
     view.index = 0;
     run = null;
     finished = null;
+    pendingLink = null;
     if (id) {
         const rec = await dbGet(id);
         if (chatId !== id) return;
@@ -1124,7 +1146,7 @@ function render() {
     }
     sheet.querySelector('.ll_prev').classList.toggle('ll_disabled', view.index >= history.length - 1);
     sheet.querySelector('.ll_next').classList.toggle('ll_disabled', view.index <= 0);
-    sheet.querySelector('.ll_nav').classList.toggle('ll_hidenav', view.tab === 'stats');
+    sheet.querySelector('.ll_nav').classList.toggle('ll_hidenav', view.tab === 'stats' || view.tab === 'report');
     const nearN = scan?.near == null ? '…' : scan.near.length + scan.cuts.length;
     sheet.querySelectorAll('.ll_tab').forEach(t => {
         t.classList.toggle('ll_active', t.dataset.tab === view.tab);
@@ -1135,6 +1157,7 @@ function render() {
 
     const body = sheet.querySelector('.ll_body');
     if (view.tab === 'stats') { renderStats(body); return; }
+    if (view.tab === 'report') { renderReport(body); return; }
     if (!scan) {
         body.innerHTML = `<div class="ll_empty"><i class="fa-solid fa-book-atlas"></i><div>${chatId ? 'ส่งข้อความหรือ swipe หนึ่งครั้ง<br>Lore Lens จะแสดงเอนทรีที่ติดและคีย์ที่ทำให้ติด' : 'เปิดแชทก่อน'}</div></div>`;
         return;
@@ -1157,7 +1180,11 @@ function render() {
         const list = scan.hits.length
             ? groupHTML(scan.hits, 'hit')
             : `<div class="ll_empty ll_small">ไม่มีเอนทรีไหนติดในการสแกนครั้งนี้${scan.cuts.length ? `<br><small>มี ${scan.cuts.length} เอนทรีถูกตัดออก — ดูแท็บ “เกือบติด”</small>` : ''}</div>`;
-        body.innerHTML = `<div class="ll_summary">${summary.join('')}<span class="ll_legend" title="🟢 คีย์เวิร์ด · 🔵 constant · 📌 sticky · ⚡ ถูกสั่งให้ติด · 🔗 vector · R2 = ติดจาก recursion รอบที่ 2">?</span></div>${list}`;
+        const at = scan.msg ? locateMessage(scan.msg) : -1;
+        const link = at >= 0
+            ? `<div class="ll_msglink" role="button" tabindex="0" data-act="rep-open" data-i="${at}" data-s="${scan.msg.swipe}"><i class="fa-solid fa-reply fa-flip-horizontal"></i> คำตอบที่ได้: ข้อความ #${at}${scan.msg.swipe ? ` · swipe ${scan.msg.swipe + 1}` : ''}<span>ดูรายงาน <i class="fa-solid fa-chevron-right"></i></span></div>`
+            : '';
+        body.innerHTML = `${link}<div class="ll_summary">${summary.join('')}<span class="ll_legend" title="🟢 คีย์เวิร์ด · 🔵 constant · 📌 sticky · ⚡ ถูกสั่งให้ติด · 🔗 vector · R2 = ติดจาก recursion รอบที่ 2">?</span></div>${list}`;
     } else {
         if (scan.near == null) {
             body.innerHTML = '<div class="ll_empty ll_small"><i class="fa-solid fa-spinner fa-spin"></i> กำลังวิเคราะห์…</div>';
@@ -1218,6 +1245,7 @@ function renderStats(body) {
             <div class="menu_button ll_act" data-act="copy-md"><i class="fa-regular fa-copy"></i> คัดลอกรายงาน</div>
             <div class="menu_button ll_act" data-act="dl-json"><i class="fa-solid fa-download"></i> JSON</div>
             <div class="menu_button ll_act" data-act="dl-md"><i class="fa-solid fa-file-lines"></i> .md</div>
+            <div class="menu_button ll_act" data-act="rep-all" title="รายงานรายข้อความ: คำตอบ, CoT, เอนทรีที่ติดและเกือบติด ของทุกข้อความในแชทนี้"><i class="fa-solid fa-file-export"></i> รายงานทุกข้อความ</div>
             <div class="menu_button ll_act ll_danger" data-act="clear-chat"><i class="fa-solid fa-trash"></i> ล้างประวัติแชทนี้</div>
         </div>`;
     renderStatsList();
@@ -1305,6 +1333,332 @@ function reportMarkdown() {
     for (const scan of history) for (const h of scan.hits) if (h.prim?.warn === 'midword') warn.push(`- **${h.prim.key}** → ${h.title}: “${h.prim.snip.join('')}”`);
     if (warn.length) lines.push('', '## คีย์ที่อาจติดกลางคำอื่น', '', ...[...new Set(warn)].slice(0, 40));
     return lines.join('\n');
+}
+
+// ---------------------------------------------------------------- per-message report
+
+const POS_TH = ['ก่อน Char Defs', 'หลัง Char Defs', "บน Author's Note", "ล่าง Author's Note", '@ความลึก', 'ก่อน Examples', 'หลัง Examples', 'Outlet'];
+const posLabel = r => (r.pos == null ? '' : r.pos === 4 ? `@D${r.depth ?? 4}` : POS_TH[r.pos] ?? `pos ${r.pos}`);
+
+/** Index of the message a scan was linked to (by send date, then by position). */
+function locateMessage(link) {
+    const chat = ctx().chat ?? [];
+    if (link.date) {
+        for (let i = chat.length - 1; i >= 0; i--) {
+            const m = chat[i];
+            if (m.is_user) continue;
+            if (String(m.send_date ?? '') === link.date) return i;
+            if (Array.isArray(m.swipe_info) && m.swipe_info.some(x => String(x?.send_date ?? '') === link.date)) return i;
+        }
+    }
+    const m = chat[link.id];
+    return m && !m.is_user ? link.id : -1;
+}
+
+function swipeDate(m, sw) {
+    if (sw === Number(m.swipe_id ?? 0)) return String(m.send_date ?? '');
+    return String(m.swipe_info?.[sw]?.send_date ?? '');
+}
+
+/** Scans that produced message `i`, swipe `sw` (oldest first — e.g. the reply, then a “continue”). */
+function scansFor(i, sw) {
+    const m = ctx().chat?.[i];
+    if (!m) return [];
+    const date = swipeDate(m, sw);
+    let list = date ? history.filter(h => h.msg && h.msg.date === date) : [];
+    if (!list.length) list = history.filter(h => h.msg && h.msg.id === i && h.msg.swipe === sw && locateMessage(h.msg) === i);
+    return list.slice().sort((a, b) => a.ts - b.ts);
+}
+
+function swipesWithScans(i) {
+    const m = ctx().chat?.[i];
+    if (!m) return [];
+    const n = Array.isArray(m.swipes) ? m.swipes.length : 1;
+    const out = [];
+    for (let sw = 0; sw < n; sw++) if (scansFor(i, sw).length) out.push(sw);
+    return out;
+}
+
+function neighbourReply(i, dir) {
+    const chat = ctx().chat ?? [];
+    for (let j = i + dir; j >= 0 && j < chat.length; j += dir) if (!chat[j].is_user && !chat[j].is_system) return j;
+    return null;
+}
+
+function dateLabel(v) {
+    if (v == null || v === '') return '';
+    const t = typeof v === 'number' ? v : Date.parse(v);
+    return Number.isFinite(t) ? fmtDate(t) : String(v);
+}
+
+function reportData(i, sw) {
+    const chat = ctx().chat ?? [];
+    const m = chat[i];
+    if (!m) return null;
+    sw = sw ?? Number(m.swipe_id ?? 0);
+    const current = sw === Number(m.swipe_id ?? 0);
+    const text = current ? String(m.mes ?? '') : String(m.swipes?.[sw] ?? '');
+    const extra = current ? m.extra : m.swipe_info?.[sw]?.extra;
+    let prev = null;
+    for (let j = i - 1; j >= 0; j--) if (chat[j].is_user && !chat[j].is_system) { prev = { i: j, name: chat[j].name, text: String(chat[j].mes ?? '') }; break; }
+    return {
+        i,
+        sw,
+        swipes: Array.isArray(m.swipes) ? m.swipes.length : 1,
+        name: m.name,
+        isUser: !!m.is_user,
+        date: current ? m.send_date : m.swipe_info?.[sw]?.send_date,
+        model: extra?.model || '',
+        api: extra?.api || '',
+        text,
+        reasoning: String(extra?.reasoning ?? ''),
+        prev,
+        scans: scansFor(i, sw),
+    };
+}
+
+/** Does the reply (or its CoT) mention this entry? Returns the key that was found. */
+function mentionIn(rec, text) {
+    if (!text) return null;
+    const keys = [...new Set([rec.prim?.key, ...(rec.keys ?? []).map(k => subst(k).trim())].filter(Boolean))];
+    for (const k of keys) if (findKey(text, k, { cs: false, ww: false })) return k;
+    return null;
+}
+
+/** Escape `text`, wrapping every occurrence of the given keys in <mark>. */
+function highlight(text, keys) {
+    const ranges = [];
+    for (const k of keys.slice(0, 40)) {
+        const rx = parseRegexKey(k);
+        let r;
+        try { r = rx ? new RegExp(rx.source, rx.flags.includes('g') ? rx.flags : `${rx.flags}g`) : new RegExp(escapeRegex(k), 'gi'); } catch { continue; }
+        for (const m of text.matchAll(r)) {
+            if (!m[0]) break;
+            ranges.push([m.index, m.index + m[0].length]);
+            if (ranges.length > 400) break;
+        }
+    }
+    if (!ranges.length) return esc(text);
+    ranges.sort((a, b) => a[0] - b[0]);
+    let out = '', at = 0;
+    for (const [a, b] of ranges) {
+        if (a < at) continue;
+        out += `${esc(text.slice(at, a))}<mark>${esc(text.slice(a, b))}</mark>`;
+        at = b;
+    }
+    return out + esc(text.slice(at));
+}
+
+const hitKeys = scans => [...new Set(scans.flatMap(sc => sc.hits.flatMap(h => [h.prim?.key, ...(h.keys ?? []).map(k => subst(k).trim())])).filter(Boolean))];
+
+function openReport(i, sw) {
+    const m = ctx().chat?.[i];
+    if (!m) { toast.warn('ไม่พบข้อความนี้'); return; }
+    view.report = { i, s: sw ?? Number(m.swipe_id ?? 0) };
+    if (isOpen()) { view.tab = 'report'; render(); sheet.querySelector('.ll_body').scrollTop = 0; } else openSheet('report');
+}
+
+function mentionBadges(rec, d) {
+    const a = mentionIn(rec, d.text), b = mentionIn(rec, d.reasoning);
+    const out = [];
+    if (a) out.push(`<span class="ll_ment" title="คำตอบมีคำว่า “${esc(a)}”"><i class="fa-solid fa-comment"></i> ${esc(a)}</span>`);
+    if (b) out.push(`<span class="ll_ment" title="CoT มีคำว่า “${esc(b)}”"><i class="fa-solid fa-brain"></i> ${esc(b)}</span>`);
+    return { html: out.join(''), any: !!(a || b) };
+}
+
+function repRowHTML(rec, kind, d, scanIdx) {
+    const why = kind === 'hit' ? null : WHY[rec.why] ?? WHY.other;
+    const lead = kind === 'hit' ? reasonBadge(rec) : `<span class="ll_reason ll_why" title="${esc(why.th)}"><i class="${why.icon}"></i></span>`;
+    const ment = mentionBadges(rec, d);
+    const flag = kind !== 'hit' && ment.any ? ' ll_rep_gap' : '';
+    const sub = kind === 'hit'
+        ? (rec.reason === 'keyword' && rec.prim ? `${keyChips(rec)}<span class="ll_src"><i class="${srcIcon(rec.prim.src)}"></i>${esc(srcLabel(rec.prim.src))}</span>` : `<span class="ll_src">${esc(REASON[rec.reason]?.th ?? '')}</span>`)
+        : `<span class="ll_src ll_whytext">${esc(why.th)}</span>${rec.prim ? keyChips(rec) : ''}`;
+    const pos = kind === 'hit' && posLabel(rec) ? `<span class="ll_src"><i class="fa-solid fa-location-dot"></i>${esc(posLabel(rec))}</span>` : '';
+    return `<div class="ll_rep_row${flag}">
+        <div class="ll_rep_line">${lead}<b>${esc(rec.title)}</b>${rec.loop > 1 && rec.state !== 3 && kind === 'hit' ? `<span class="ll_badge">R${rec.loop}</span>` : ''}</div>
+        <div class="ll_row_sub">${sub}${pos}</div>
+        ${rec.prim?.snip ? `<div class="ll_snip ll_snip_sm">${esc(rec.prim.snip[0])}<mark>${esc(rec.prim.snip[1])}</mark>${esc(rec.prim.snip[2])}</div>` : ''}
+        ${ment.html ? `<div class="ll_row_sub">${flag ? '<span class="ll_src ll_gaptext"><i class="fa-solid fa-triangle-exclamation"></i> คำตอบพูดถึง แต่เอนทรีไม่ได้เข้า prompt</span>' : '<span class="ll_src">คำตอบพูดถึง</span>'}${ment.html}</div>` : ''}
+        ${kind === 'hit' ? `<details class="ll_rep_content" data-scan="${scanIdx}" data-k="${esc(rec.k)}"><summary>เนื้อหาที่ใส่ใน prompt</summary><div class="ll_content_text">${rec.content ? esc(rec.content) : '<i class="fa-solid fa-spinner fa-spin"></i>'}</div></details>` : ''}
+    </div>`;
+}
+
+/** Keyed entries (from the active lorebooks) the reply talks about although the scan never matched them. */
+function otherMentions(d) {
+    if (!catalog.length || !d.scans.length) return [];
+    const seen = new Set(d.scans.flatMap(sc => [...sc.hits, ...sc.cuts, ...(sc.near ?? [])].map(r => r.k)));
+    return catalog.filter(c => !seen.has(c.k) && (mentionIn(c, d.text) || mentionIn(c, d.reasoning))).slice(0, 30);
+}
+
+function renderReport(body) {
+    const { i, s: sw } = view.report ?? {};
+    const d = i == null ? null : reportData(i, sw);
+    if (!d) { body.innerHTML = '<div class="ll_empty ll_small">ไม่พบข้อความ</div>'; return; }
+    const keys = hitKeys(d.scans);
+    const other = swipesWithScans(i).filter(x => x !== d.sw);
+    const meta = [
+        d.swipes > 1 ? `swipe ${d.sw + 1}/${d.swipes}` : '',
+        esc(dateLabel(d.date)),
+        d.model ? esc(d.model) : '',
+    ].filter(Boolean).join(' · ');
+
+    let scansHTML = '';
+    if (!d.scans.length) {
+        scansHTML = `<div class="ll_empty ll_small">ไม่มีผลสแกนของ${d.isUser ? 'ข้อความผู้ใช้ (รายงานมีเฉพาะคำตอบของบอท)' : 'คำตอบนี้'}<br><small>ข้อความที่เจนก่อนติดตั้ง Lore Lens, เจนบนเครื่องอื่น หรือเกินจำนวนที่เก็บย้อนหลัง จะไม่มีข้อมูล</small>${other.length ? `<div class="ll_actions ll_center">${other.map(x => `<div class="menu_button ll_act" data-act="rep-swipe" data-s="${x}">ดู swipe ${x + 1}</div>`).join('')}</div>` : ''}</div>`;
+    }
+    d.scans.forEach((sc, n) => {
+        const idx = history.indexOf(sc);
+        const hitM = sc.hits.filter(h => mentionIn(h, d.text) || mentionIn(h, d.reasoning)).length;
+        const miss = [...sc.cuts, ...(sc.near ?? [])];
+        const gap = miss.filter(r => mentionIn(r, d.text) || mentionIn(r, d.reasoning)).length;
+        scansHTML += `<div class="ll_section">World Info${d.scans.length > 1 ? ` · สแกนครั้งที่ ${n + 1}` : ''} · ${esc(GEN_TH[sc.genType] ?? sc.genType)} · ${esc(fmtTime(sc.ts))}</div>
+            <div class="ll_summary">
+                <span class="ll_pill"><b>${sc.hits.length}</b> ติด</span>
+                <span class="ll_pill" title="เอนทรีที่ติด ซึ่งคำตอบหรือ CoT มีคีย์ของมัน"><i class="fa-solid fa-comment"></i> พูดถึง ${hitM}/${sc.hits.length}</span>
+                <span class="ll_pill">${sc.near == null ? '…' : miss.length} เกือบติด</span>
+                ${gap ? `<span class="ll_pill ll_warnpill" title="คำตอบพูดถึงเรื่องที่มีเอนทรี แต่เอนทรีนั้นไม่ได้เข้า prompt"><i class="fa-solid fa-triangle-exclamation"></i> ${gap}</span>` : ''}
+                ${sc.overflow ? '<span class="ll_pill ll_bad"><i class="fa-solid fa-triangle-exclamation"></i> งบเต็ม</span>' : ''}
+            </div>
+            ${sc.hits.map(h => repRowHTML(h, 'hit', d, idx)).join('') || '<div class="ll_note">ไม่มีเอนทรีติด</div>'}
+            ${miss.length ? `<div class="ll_section ll_sub">เกือบติด / ถูกตัด</div>${miss.map(r => repRowHTML(r, r.why === 'budget' || r.why === 'prob' ? 'cut' : 'near', d, idx)).join('')}` : ''}`;
+    });
+
+    const others = otherMentions(d);
+    if (others.length) {
+        scansHTML += `<div class="ll_section ll_sub">คำตอบพูดถึง แต่ไม่ได้ถูกสแกนเจอ <span>${others.length}</span></div>
+            <div class="ll_note">เอนทรีใน lorebook ที่เปิดอยู่ ซึ่งคีย์ของมันอยู่ในคำตอบหรือ CoT แต่ไม่อยู่ในข้อความที่ถูกสแกนตอนเจน — โมเดลอาจแต่งรายละเอียดเองโดยไม่มี lore</div>
+            ${others.map(c => {
+                const ment = mentionBadges(c, d);
+                return `<div class="ll_rep_row ll_rep_gap"><div class="ll_rep_line"><span class="ll_reason ll_why"><i class="fa-solid fa-circle-question"></i></span><b>${esc(c.title)}</b></div><div class="ll_row_sub"><span class="ll_src">${esc(c.world)}</span>${ment.html}</div></div>`;
+            }).join('')}`;
+    }
+    const long = t => t.length > 1200;
+    body.innerHTML = `
+        <div class="ll_rep_head">
+            <div class="ll_iconbtn" role="button" tabindex="0" data-act="rep-back" title="กลับ"><i class="fa-solid fa-arrow-left"></i></div>
+            <div class="ll_rep_title"><b>ข้อความ #${d.i} · ${esc(d.name)}</b><small>${meta}</small></div>
+            <div class="ll_iconbtn${neighbourReply(d.i, -1) == null ? ' ll_disabled' : ''}" role="button" tabindex="0" data-act="rep-prev" title="คำตอบก่อนหน้า"><i class="fa-solid fa-chevron-up"></i></div>
+            <div class="ll_iconbtn${neighbourReply(d.i, 1) == null ? ' ll_disabled' : ''}" role="button" tabindex="0" data-act="rep-next" title="คำตอบถัดไป"><i class="fa-solid fa-chevron-down"></i></div>
+        </div>
+        <div class="ll_actions">
+            <div class="menu_button ll_act" data-act="rep-copy"><i class="fa-regular fa-copy"></i> คัดลอกรายงาน</div>
+            <div class="menu_button ll_act" data-act="rep-dl"><i class="fa-solid fa-download"></i> .md</div>
+        </div>
+        ${d.prev ? `<details class="ll_rep_block"><summary><i class="fa-solid fa-user"></i> ข้อความก่อนหน้า #${d.prev.i} · ${esc(d.prev.name)}</summary><div class="ll_rep_text">${highlight(d.prev.text, keys)}</div></details>` : ''}
+        <details class="ll_rep_block"${long(d.text) ? '' : ' open'}><summary><i class="fa-solid fa-comment"></i> คำตอบ <small>${d.text.length.toLocaleString()} ตัวอักษร</small></summary><div class="ll_rep_text">${highlight(d.text, keys) || '<i>ว่าง</i>'}</div></details>
+        ${d.reasoning ? `<details class="ll_rep_block"><summary><i class="fa-solid fa-brain"></i> Chain of thought <small>${d.reasoning.length.toLocaleString()} ตัวอักษร</small></summary><div class="ll_rep_text">${highlight(d.reasoning, keys)}</div></details>` : '<div class="ll_note"><i class="fa-solid fa-brain"></i> ข้อความนี้ไม่มี CoT แยกเก็บไว้</div>'}
+        <div class="ll_note">คำที่ไฮไลต์ = คีย์ของเอนทรีที่ติด · 💬 = คำตอบ/CoT มีคีย์ของเอนทรีนั้น (ตรวจแบบคร่าว ๆ จากคีย์ ไม่ได้อ่านความหมาย)</div>
+        ${scansHTML}`;
+    body.querySelectorAll('.ll_rep_content').forEach(el => el.addEventListener('toggle', () => fillRepContent(el), { once: true }));
+}
+
+async function fillRepContent(el) {
+    const div = el.querySelector('.ll_content_text');
+    if (!div.querySelector('.fa-spinner')) return;
+    const sc = history[Number(el.dataset.scan)];
+    const rec = sc?.hits.find(h => h.k === el.dataset.k);
+    const e = rec ? await entryContent(rec.world, rec.uid) : null;
+    div.innerHTML = e ? `${esc(String(e.content ?? ''))}<small class="ll_meta">(เนื้อหาปัจจุบันใน lorebook — การสแกนนี้เก่ากว่าเวอร์ชันที่เก็บเนื้อหาไว้)</small>` : '<small>โหลดเนื้อหาไม่ได้</small>';
+}
+
+const fence = t => {
+    const ticks = '`'.repeat(Math.max(3, ...[...String(t).matchAll(/`+/g)].map(m => m[0].length + 1)));
+    return `${ticks}text\n${t}\n${ticks}`;
+};
+const cellMd = v => String(v ?? '').replace(/\|/g, '\\|').replace(/\s*\n\s*/g, ' ');
+
+async function messageReportMarkdown(i, sw, { heading = '#' } = {}) {
+    const d = reportData(i, sw);
+    if (!d) return '';
+    const h2 = `${heading}#`, h3 = `${heading}##`;
+    const L = [
+        `${heading} ข้อความ #${d.i} — ${d.name}`,
+        '',
+        [d.swipes > 1 ? `swipe ${d.sw + 1}/${d.swipes}` : '', dateLabel(d.date), d.model, d.api].filter(Boolean).join(' · '),
+        '',
+    ];
+    if (d.prev) L.push(`${h2} ข้อความก่อนหน้า (#${d.prev.i} · ${d.prev.name})`, '', fence(d.prev.text), '');
+    L.push(`${h2} คำตอบ`, '', fence(d.text), '');
+    L.push(`${h2} Chain of thought`, '', d.reasoning ? fence(d.reasoning) : '_ไม่มี CoT แยกเก็บไว้_', '');
+    if (!d.scans.length) {
+        L.push(`${h2} World Info`, '', '_ไม่มีผลสแกนของข้อความนี้_', '');
+        return L.join('\n');
+    }
+    for (const [n, sc] of d.scans.entries()) {
+        const ment = r => [mentionIn(r, d.text) ? `💬 ${mentionIn(r, d.text)}` : '', mentionIn(r, d.reasoning) ? `🧠 ${mentionIn(r, d.reasoning)}` : ''].filter(Boolean).join(' ');
+        L.push(`${h2} World Info${d.scans.length > 1 ? ` — สแกนครั้งที่ ${n + 1}` : ''} (${GEN_TH[sc.genType] ?? sc.genType}, ${fmtTime(sc.ts)})`, '');
+        L.push(`ติด ${sc.hits.length} · สแกน ${sc.loops} รอบ${sc.overflow ? ' · **งบ token เต็ม**' : ''}`, '');
+        L.push(`${h3} เอนทรีที่ติด`, '');
+        if (sc.hits.length) {
+            L.push('| | เอนทรี | Lorebook | ตำแหน่ง | คีย์ / สาเหตุ | เจอที่ | บริบท | คำตอบพูดถึง |', '|---|---|---|---|---|---|---|---|');
+            for (const h of sc.hits) {
+                const why = h.reason === 'keyword' && h.prim
+                    ? `${h.prim.key}${h.sec?.filter(x => x.ok).length ? ` + ${h.sec.filter(x => x.ok).map(x => x.key).join(', ')}` : ''}${h.prim.warn ? ' ⚠ กลางคำ' : ''}`
+                    : REASON[h.reason]?.th ?? h.reason;
+                L.push(`| ${REASON[h.reason]?.icon ?? ''}${h.loop > 1 && h.state !== 3 ? ` R${h.loop}` : ''} | ${cellMd(h.title)} | ${cellMd(h.world)} | ${cellMd(posLabel(h))} | ${cellMd(why)} | ${cellMd(h.reason === 'keyword' ? srcLabel(h.prim?.src) : '')} | ${cellMd(h.prim?.snip?.join('') ?? '')} | ${cellMd(ment(h))} |`);
+            }
+        } else L.push('_ไม่มี_');
+        L.push('');
+        const miss = [...sc.cuts, ...(sc.near ?? [])];
+        L.push(`${h3} เกือบติด / ถูกตัด`, '');
+        if (miss.length) {
+            L.push('| เอนทรี | Lorebook | เหตุผล | คีย์ที่ตรง | คีย์รอง | เจอที่ | คำตอบพูดถึง |', '|---|---|---|---|---|---|---|');
+            for (const r of miss) {
+                L.push(`| ${cellMd(r.title)} | ${cellMd(r.world)} | ${cellMd((WHY[r.why] ?? WHY.other).th)}${r.group ? ` (${cellMd(r.group)})` : ''} | ${cellMd(r.prim?.key ?? '')} | ${cellMd(r.sec ? `${LOGIC[r.logic] ?? ''}: ${r.sec.map(x => `${x.ok ? '✓' : '✗'}${x.key}`).join(', ')}` : '')} | ${cellMd(srcLabel(r.prim?.src))} | ${cellMd(ment(r))}${ment(r) ? ' ⚠ ไม่ได้เข้า prompt' : ''} |`);
+            }
+        } else L.push(sc.near == null ? '_กำลังวิเคราะห์_' : '_ไม่มี_');
+        L.push('');
+        if (n === d.scans.length - 1) {
+            const others = otherMentions(d);
+            if (others.length) {
+                L.push(`${h3} คำตอบพูดถึง แต่ไม่ได้ถูกสแกนเจอ`, '', '| เอนทรี | Lorebook | คำตอบพูดถึง |', '|---|---|---|');
+                for (const c of others) L.push(`| ${cellMd(c.title)} | ${cellMd(c.world)} | ${cellMd(ment(c))} |`);
+                L.push('');
+            }
+        }
+        if (settings().reportContent && sc.hits.length) {
+            L.push(`${h3} เนื้อหาที่ใส่ใน prompt`, '');
+            for (const h of sc.hits) {
+                let text = h.content;
+                let note = '';
+                if (text == null) {
+                    const e = await entryContent(h.world, h.uid);
+                    text = e ? String(e.content ?? '') : '(โหลดไม่ได้)';
+                    note = ' — เนื้อหาปัจจุบันใน lorebook';
+                }
+                L.push(`**${h.title}** (${h.world} · uid ${h.uid}${posLabel(h) ? ` · ${posLabel(h)}` : ''}${note})`, '', fence(text), '');
+            }
+        }
+    }
+    return L.join('\n');
+}
+
+async function chatReportMarkdown() {
+    const chat = ctx().chat ?? [];
+    const parts = [];
+    for (let i = 0; i < chat.length; i++) {
+        if (chat[i].is_user || chat[i].is_system) continue;
+        if (!scansFor(i, Number(chat[i].swipe_id ?? 0)).length) continue;
+        parts.push(await messageReportMarkdown(i, undefined, { heading: '##' }));
+    }
+    if (!parts.length) return '';
+    const c = ctx();
+    const who = c.groupId ? (c.groups?.find(g => g.id == c.groupId)?.name ?? 'group') : (c.name2 ?? '');
+    return [`# Lore Lens — รายงานรายข้อความ: ${who}`, '', `แชท: ${chatId} · ${parts.length} ข้อความ · ส่งออก ${fmtDate(Date.now())}`, '', ...parts.flatMap(p => [p, '', '---', ''])].join('\n');
+}
+
+// ---------------------------------------------------------------- message menu button
+
+const MES_BTN = '<div title="Lore Lens — รายงานข้อความนี้" class="mes_button ll_mes_report fa-solid fa-book-atlas"></div>';
+
+function installMessageButtons() {
+    const tpl = document.querySelector('#message_template .extraMesButtons');
+    if (tpl && !tpl.querySelector('.ll_mes_report')) tpl.insertAdjacentHTML('afterbegin', MES_BTN);
+    document.querySelectorAll('#chat .mes .extraMesButtons').forEach(el => {
+        if (!el.querySelector('.ll_mes_report')) el.insertAdjacentHTML('afterbegin', MES_BTN);
+    });
+    document.body.classList.toggle('ll_nomesbtn', !settings().mesButton);
 }
 
 // ---------------------------------------------------------------- actions
@@ -1444,6 +1798,26 @@ async function onBodyClick(e) {
             download(`lorelens_${safeName(chatId)}.md`, reportMarkdown(), 'text/markdown');
         } else if (act === 'dl-json') {
             download(`lorelens_${safeName(chatId)}.json`, JSON.stringify({ chatId, exported: new Date().toISOString(), scans: history, catalog }, null, 1), 'application/json');
+        } else if (act === 'rep-open') {
+            const el = e.target.closest('[data-act]');
+            openReport(Number(el.dataset.i), el.dataset.s != null ? Number(el.dataset.s) : undefined);
+        } else if (act === 'rep-back') {
+            view.tab = 'hit';
+            render();
+        } else if (act === 'rep-prev' || act === 'rep-next') {
+            const i = neighbourReply(view.report.i, act === 'rep-prev' ? -1 : 1);
+            if (i != null) openReport(i);
+        } else if (act === 'rep-swipe') {
+            openReport(view.report.i, Number(e.target.closest('[data-act]').dataset.s));
+        } else if (act === 'rep-copy' || act === 'rep-dl') {
+            const md = await messageReportMarkdown(view.report.i, view.report.s);
+            if (!md) return;
+            if (act === 'rep-dl') download(`lorelens_${safeName(chatId)}_msg${view.report.i}.md`, md, 'text/markdown');
+            else if (await copyText(md)) toast.ok('คัดลอกรายงานข้อความนี้แล้ว'); else toast.warn('คัดลอกไม่ได้ ลองปุ่มดาวน์โหลดแทน');
+        } else if (act === 'rep-all') {
+            const md = await chatReportMarkdown();
+            if (md) download(`lorelens_${safeName(chatId)}_messages.md`, md, 'text/markdown');
+            else toast.info('ยังไม่มีข้อความที่ผูกกับผลสแกน');
         } else if (act === 'clear-chat') {
             if (!confirm('ล้างประวัติ Lore Lens ของแชทนี้?')) return;
             history = [];
@@ -1558,6 +1932,9 @@ function renderSettings() {
                 <div class="ll_set_btns">
                     <div id="ll_look_reset" class="menu_button"><i class="fa-solid fa-rotate-left"></i> คืนค่าหน้าตาเริ่มต้น</div>
                 </div>
+                <div class="ll_set_title">รายงานรายข้อความ</div>
+                <label class="checkbox_label"><input type="checkbox" id="ll_mesbtn"> ปุ่ม <i class="fa-solid fa-book-atlas"></i> ในเมนู “…” ของคำตอบบอท</label>
+                <label class="checkbox_label" title="ข้อความจริงที่ถูกใส่เข้า prompt (แทน macro แล้ว)"><input type="checkbox" id="ll_repcontent"> ใส่เนื้อหาเอนทรีที่ติดในไฟล์รายงาน</label>
                 <div class="ll_set_title">อื่น ๆ</div>
                 <div class="ll_set_btns">
                     <div id="ll_open" class="menu_button"><i class="fa-solid fa-book-atlas"></i> เปิด Lore Lens</div>
@@ -1589,6 +1966,8 @@ function renderSettings() {
     check('ll_near', 'nearMiss');
     check('ll_alert', 'alertOverflow', () => { if (!s.alertOverflow) { alertState = ''; updateButton(); } });
     check('ll_quiet', 'ignoreQuiet');
+    check('ll_mesbtn', 'mesButton', installMessageButtons);
+    check('ll_repcontent', 'reportContent');
     num('ll_hist', 'historySize', 5, 200);
     num('ll_snip', 'snippet', 16, 160);
     $('ll_open').addEventListener('click', () => openSheet());
@@ -1705,11 +2084,18 @@ function registerCommands() {
             name: 'lorelens',
             callback: (_args, value) => {
                 const v = String(value ?? '').trim().toLowerCase();
+                const rep = v.match(/^report\s*(\d+)?$/);
+                if (rep) {
+                    const chat = ctx().chat ?? [];
+                    const i = rep[1] != null ? Number(rep[1]) : neighbourReply(chat.length, -1);
+                    if (i == null || !chat[i]) toast.warn('ไม่พบข้อความ'); else openReport(i);
+                    return '';
+                }
                 openSheet(v === 'stats' ? 'stats' : v === 'near' ? 'near' : v === 'hit' ? 'hit' : undefined);
                 return '';
             },
             unnamedArgumentList: SlashCommandArgument && ARGUMENT_TYPE ? [
-                SlashCommandArgument.fromProps({ description: 'hit | near | stats', typeList: [ARGUMENT_TYPE.STRING], isRequired: false }),
+                SlashCommandArgument.fromProps({ description: 'hit | near | stats | report [เลขข้อความ]', typeList: [ARGUMENT_TYPE.STRING], isRequired: false }),
             ] : [],
             helpString: 'เปิด Lore Lens — เอนทรี World Info ที่ติด พร้อมคีย์และตำแหน่งที่ทำให้ติด',
         }));
@@ -1739,6 +2125,14 @@ async function init() {
     if (E.WORLDINFO_SCAN_DONE) eventSource.on(E.WORLDINFO_SCAN_DONE, onScanDone);
     else console.warn(LOG, 'this SillyTavern version has no WORLDINFO_SCAN_DONE event — please update SillyTavern');
     eventSource.on(E.WORLD_INFO_ACTIVATED, onWorldInfoActivated);
+    eventSource.on(E.MESSAGE_RECEIVED, onMessageReceived);
+    installMessageButtons();
+    document.addEventListener('click', e => {
+        const b = e.target.closest?.('.ll_mes_report');
+        if (!b) return;
+        const i = Number(b.closest('.mes')?.getAttribute('mesid'));
+        if (Number.isFinite(i)) openReport(i);
+    });
     eventSource.on(E.CHAT_CHANGED, () => loadChat());
     if (E.APP_READY) eventSource.on(E.APP_READY, () => { loadChat(); placeButton(); });
     loadChat();
@@ -1751,6 +2145,9 @@ globalThis.LoreLens = {
     history: () => history,
     catalog: () => catalog,
     report: reportMarkdown,
+    openReport,
+    messageReport: messageReportMarkdown,
+    chatReport: chatReportMarkdown,
     applyLook,
     _findKey: findKey,
 };

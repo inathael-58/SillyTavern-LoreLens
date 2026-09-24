@@ -450,6 +450,75 @@
 #ll_sheet .ll_never .ll_stat_title { font-weight: 400; }
 #ll_sheet .ll_export { margin-top: 10px; }
 
+/* ---------------------------------------------------------------- per-message report */
+#ll_sheet .ll_msglink {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 2px 0 8px;
+    padding: 7px 10px;
+    border-radius: 10px;
+    font-size: 0.86em;
+    background: color-mix(in srgb, var(--ll-accent) 12%, transparent);
+    border: 1px solid color-mix(in srgb, var(--ll-accent) 35%, transparent);
+    cursor: pointer;
+}
+#ll_sheet .ll_msglink span { margin-left: auto; color: var(--ll-accent); white-space: nowrap; }
+#ll_sheet .ll_rep_head { display: flex; align-items: center; gap: 4px; margin: 0 0 6px; }
+#ll_sheet .ll_rep_title { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+#ll_sheet .ll_rep_title b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#ll_sheet .ll_rep_title small { font-size: 0.78em; opacity: 0.65; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#ll_sheet .ll_rep_head + .ll_actions { margin-bottom: 8px; }
+#ll_sheet .ll_rep_block { margin: 0 0 6px; border: 1px solid var(--ll-soft); border-radius: 10px; overflow: hidden; }
+#ll_sheet .ll_rep_block > summary { padding: 7px 10px; cursor: pointer; font-size: 0.9em; list-style-position: inside; }
+#ll_sheet .ll_rep_block > summary i { width: 16px; text-align: center; opacity: 0.8; }
+#ll_sheet .ll_rep_block > summary small { opacity: 0.55; margin-left: 4px; }
+#ll_sheet .ll_rep_text {
+    max-height: 42vh;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding: 4px 12px 10px;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    font-size: 0.9em;
+}
+#ll_sheet .ll_rep_text mark,
+#ll_sheet .ll_snip_sm mark { padding: 0 1px; border-radius: 3px; color: inherit; background: color-mix(in srgb, var(--ll-accent) 35%, transparent); }
+#ll_sheet .ll_section.ll_sub { margin-top: 12px; }
+#ll_sheet .ll_rep_row {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-bottom: 4px;
+    padding: 8px 10px;
+    border: 1px solid var(--ll-soft);
+    border-radius: 10px;
+}
+#ll_sheet .ll_rep_row.ll_rep_gap { border-color: color-mix(in srgb, var(--ll-warn) 55%, transparent); }
+#ll_sheet .ll_rep_line { display: flex; align-items: center; gap: 6px; overflow-wrap: anywhere; }
+#ll_sheet .ll_rep_line .ll_reason { width: auto; }
+#ll_sheet .ll_snip_sm { padding: 4px 8px; font-size: 0.8em; }
+#ll_sheet .ll_ment {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 1px 7px;
+    border-radius: 6px;
+    font-size: 0.8em;
+    border: 1px solid color-mix(in srgb, var(--ll-fg) 25%, transparent);
+}
+#ll_sheet .ll_ment i { font-size: 0.85em; opacity: 0.75; }
+#ll_sheet .ll_gaptext { color: var(--ll-warn); opacity: 1; }
+#ll_sheet .ll_rep_gap .ll_ment { border-color: color-mix(in srgb, var(--ll-warn) 55%, transparent); color: var(--ll-warn); }
+#ll_sheet .ll_pill.ll_warnpill { color: var(--ll-warn); background: color-mix(in srgb, var(--ll-warn) 16%, transparent); }
+#ll_sheet .ll_rep_content > summary { font-size: 0.8em; opacity: 0.7; cursor: pointer; }
+#ll_sheet .ll_rep_content .ll_content_text { margin-top: 4px; font-size: 0.84em; }
+#ll_sheet .ll_center { justify-content: center; margin-top: 8px; }
+
+/* “…” menu of each message */
+.mes[is_user="true"] .ll_mes_report,
+body.ll_nomesbtn .ll_mes_report { display: none; }
+
 /* entry flashed in the lorebook editor after “open in lorebook” */
 .ll_flash { outline: 2px solid var(--SmartThemeQuoteColor, #e18a24) !important; outline-offset: 2px; animation: ll_flash 0.45s ease-in-out 4 alternate; }
 @keyframes ll_flash { to { outline-color: transparent; } }
