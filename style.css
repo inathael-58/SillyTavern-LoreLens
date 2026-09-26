@@ -532,6 +532,7 @@ body.ll_nomesbtn .ll_mes_report { display: none; }
 .ll_settings .ll_setnote:empty { display: none; }
 .ll_settings .ll_set_title { margin-top: 12px; font-weight: 600; opacity: 0.85; }
 .ll_settings .ll_set_title.ll_sub { margin-top: 6px; font-weight: 400; }
+.ll_settings .ll_version { opacity: 0.6; font-weight: normal; }
 .ll_settings .ll_set_grid select { margin: 0; }
 .ll_settings .ll_colorpick { display: flex; gap: 4px; align-items: center; min-width: 0; }
 .ll_settings .ll_colorpick select { flex: 1; min-width: 0; margin: 0; }

@@ -21,6 +21,8 @@ const DB_NAME = 'LoreLens';
 const DB_STORE = 'chats';
 const MAX_CHATS = 40;
 const EDGE = 8;
+const VERSION = '1.2.1'; // keep in sync with manifest.json
+const BASE_URL = new URL('.', import.meta.url);
 
 const DEFAULTS = Object.freeze({
     enabled: true,
@@ -147,7 +149,7 @@ const fmtDate = ts => new Date(ts).toLocaleString([], { day: 'numeric', month: '
 
 const toast = {
     ok: m => globalThis.toastr?.success(m, 'Lore Lens'),
-    info: m => globalThis.toastr?.info(m, 'Lore Lens'),
+    info: (m, o) => globalThis.toastr?.info(m, 'Lore Lens', o),
     warn: m => globalThis.toastr?.warning(m, 'Lore Lens'),
 };
 
@@ -1904,7 +1906,7 @@ function renderSettings() {
     <div id="ll_settings" class="ll_settings">
         <div class="inline-drawer">
             <div class="inline-drawer-toggle inline-drawer-header">
-                <b>Lore Lens</b>
+                <b>Lore Lens <small class="ll_version">v${VERSION}</small></b>
                 <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
             </div>
             <div class="inline-drawer-content">
@@ -2126,6 +2128,44 @@ function registerCommands() {
     }
 }
 
+// ---------------------------------------------------------------- stale-code check
+//
+// SillyTavern loads extension files by a fixed URL, and a home-screen web app
+// on iOS rarely does a real reload, so after "Update" the old code can keep
+// running for a long time. Compare with the manifest on the server; if it is
+// newer, refresh the cached files explicitly and reload.
+
+let versionCheckedAt = 0;
+let versionToastShown = false;
+
+async function checkForNewVersion() {
+    if (versionToastShown || Date.now() - versionCheckedAt < 10 * 60_000) return;
+    versionCheckedAt = Date.now();
+    let remote;
+    try {
+        const res = await fetch(new URL('manifest.json', BASE_URL), { cache: 'no-store' });
+        if (!res.ok) return;
+        remote = String((await res.json())?.version ?? '');
+    } catch { return; }
+    if (!remote || remote === VERSION) return;
+    versionToastShown = true;
+    toast.info(`ติดตั้ง v${remote} ไว้แล้ว แต่หน้านี้ยังรัน v${VERSION} อยู่<br>แตะที่นี่เพื่อโหลดเวอร์ชันใหม่`, {
+        timeOut: 0, extendedTimeOut: 0, closeButton: true, escapeHtml: false,
+        onclick: () => reloadWithFreshFiles(),
+    });
+}
+
+async function reloadWithFreshFiles() {
+    try {
+        // cache: 'reload' fetches from the server and overwrites the browser's cached copy,
+        // so the page reload below picks up the new files.
+        await Promise.all(['index.js', 'style.css', 'manifest.json'].map(f =>
+            fetch(new URL(f, BASE_URL), { cache: 'reload' }).catch(() => null)));
+    } finally {
+        location.reload();
+    }
+}
+
 // ---------------------------------------------------------------- init
 
 async function init() {
@@ -2158,6 +2198,10 @@ async function init() {
     eventSource.on(E.CHAT_CHANGED, () => loadChat());
     if (E.APP_READY) eventSource.on(E.APP_READY, () => { loadChat(); placeButton(); });
     loadChat();
+    setTimeout(checkForNewVersion, 3000);
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') checkForNewVersion();
+    });
     console.log(LOG, 'loaded');
 }
 
@@ -2171,6 +2215,9 @@ globalThis.LoreLens = {
     messageReport: messageReportMarkdown,
     chatReport: chatReportMarkdown,
     applyLook,
+    checkForNewVersion,
+    reloadWithFreshFiles,
+    VERSION,
     _findKey: findKey,
     _primWarn: primWarn,
     _midWord: (text, key) => { const i = text.indexOf(key); return i < 0 ? null : midWord(text, { index: i, length: key.length, regex: false }, key); },
