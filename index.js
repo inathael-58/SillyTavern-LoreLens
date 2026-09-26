@@ -21,6 +21,8 @@ const DB_NAME = 'LoreLens';
 const DB_STORE = 'chats';
 const MAX_CHATS = 40;
 const EDGE = 8;
+const VERSION = '1.2.1'; // keep in sync with manifest.json
+const BASE_URL = new URL('.', import.meta.url);
 
 const DEFAULTS = Object.freeze({
     enabled: true,
@@ -147,7 +149,7 @@ const fmtDate = ts => new Date(ts).toLocaleString([], { day: 'numeric', month: '
 
 const toast = {
     ok: m => globalThis.toastr?.success(m, 'Lore Lens'),
-    info: m => globalThis.toastr?.info(m, 'Lore Lens'),
+    info: (m, o) => globalThis.toastr?.info(m, 'Lore Lens', o),
     warn: m => globalThis.toastr?.warning(m, 'Lore Lens'),
 };
 
@@ -205,23 +207,45 @@ function snippetOf(text, hit, span) {
 let thaiSegmenter;
 try { thaiSegmenter = new Intl.Segmenter('th', { granularity: 'word' }); } catch { thaiSegmenter = null; }
 
+/** Is `key` a word the browser's Thai dictionary knows? Names and loanwords usually are not. */
+const dictCache = new Map();
+function isDictWord(key) {
+    if (!dictCache.has(key)) {
+        const segs = [...thaiSegmenter.segment(key)].filter(x => x.isWordLike);
+        dictCache.set(key, segs.length === 1 && segs[0].segment === key);
+        if (dictCache.size > 500) dictCache.clear();
+    }
+    return dictCache.get(key);
+}
+
 /**
  * Thai has no spaces, so "whole words" can't stop a key from matching inside
- * another word (ยา in พยายาม). Ask the browser's Thai word breaker whether the
- * match starts and ends on word boundaries.
+ * another word (ยา in พยายาม). Warn only when the browser's Thai word breaker
+ * puts the whole match strictly inside one longer word.
+ *
+ * Deliberately NOT warned: keys the dictionary doesn't know (character names
+ * such as โนเอล, เรเซย์). The word breaker splits those at random places —
+ * "ของโนเอลดังขึ้น" comes out as ของ|โน|เอ|ลดัง|ขึ้น — so its boundaries say
+ * nothing about them.
  */
 function midWord(text, hit, key) {
-    if (!thaiSegmenter || hit.regex || !THAI.test(key)) return false;
+    if (!thaiSegmenter || hit.regex || !THAI.test(key) || !isDictWord(key)) return false;
     const start = hit.index, end = hit.index + hit.length;
-    const glued = THAI.test(text[start - 1] ?? '') || THAI.test(text[end] ?? '');
-    if (!glued) return false;
+    if (!THAI.test(text[start - 1] ?? '') && !THAI.test(text[end] ?? '')) return false;
     const from = Math.max(0, start - 40);
-    const bounds = new Set();
     for (const seg of thaiSegmenter.segment(text.slice(from, Math.min(text.length, end + 40)))) {
-        bounds.add(from + seg.index);
-        bounds.add(from + seg.index + seg.segment.length);
+        const a = from + seg.index, b = a + seg.segment.length;
+        if (a <= start && b >= end) return a !== start || b !== end;
+        if (a >= end) break;
     }
-    return !bounds.has(start) || !bounds.has(end);
+    return false;
+}
+
+/** Mid-word warning for a stored match, re-checked from its snippet so older scans get the current rules. */
+function primWarn(p) {
+    if (!p?.snip || parseRegexKey(p.key)) return false;
+    const [b, m, a] = p.snip;
+    return midWord(b + m + a, { index: b.length, length: m.length, regex: false }, p.key);
 }
 
 // ---------------------------------------------------------------- capture: what the engine scanned
@@ -332,7 +356,6 @@ function firstMatch(keys, segs, opt, span) {
             const hit = findKey(seg.text, key, opt);
             if (hit) {
                 const out = { key, src: seg.src, snip: snippetOf(seg.text, hit, span) };
-                if (midWord(seg.text, hit, key)) out.warn = 'midword';
                 return out;
             }
         }
@@ -1058,7 +1081,8 @@ const snipHTML = p => (p?.snip ? `<div class="ll_snip">${esc(p.snip[0])}<mark>${
 
 function keyChips(rec) {
     const chips = [];
-    if (rec.prim) chips.push(`<span class="ll_chip ll_prim${rec.prim.warn ? ' ll_warnchip' : ''}" title="คีย์หลักที่ทำให้ติด${rec.prim.warn ? ' — เจออยู่กลางคำอื่น อาจติดผิดคำ' : ''}"><i class="fa-solid fa-key"></i>${esc(rec.prim.key)}${rec.prim.warn ? ' ⚠' : ''}</span>`);
+    const warn = primWarn(rec.prim);
+    if (rec.prim) chips.push(`<span class="ll_chip ll_prim${warn ? ' ll_warnchip' : ''}" title="คีย์หลักที่ทำให้ติด${warn ? ' — เจออยู่ในคำอื่นที่ยาวกว่า อาจติดผิดคำ' : ''}"><i class="fa-solid fa-key"></i>${esc(rec.prim.key)}${warn ? ' ⚠' : ''}</span>`);
     for (const s of rec.sec ?? []) {
         if (s.ok) chips.push(`<span class="ll_chip ll_secok" title="คีย์รองที่เจอ">+ ${esc(s.key)}</span>`);
     }
@@ -1101,7 +1125,7 @@ function detailHTML(rec, kind) {
     if (rec.prim) {
         parts.push(`<div class="ll_dl"><span>เจอที่</span><div><i class="${srcIcon(rec.prim.src)}"></i> ${esc(srcLabel(rec.prim.src))}</div></div>`);
         parts.push(snipHTML(rec.prim));
-        if (rec.prim.warn === 'midword') parts.push('<div class="ll_note ll_warn"><i class="fa-solid fa-triangle-exclamation"></i> คีย์นี้ไปเจออยู่กลางคำอื่น (ตัวตัดคำไทยของเบราว์เซอร์ไม่ได้ตัดตรงขอบคีย์) อาจเป็นการติดผิดคำ — ลองใช้คีย์ที่ยาวขึ้น หรือเขียนเป็น /regex/</div>');
+        if (primWarn(rec.prim)) parts.push('<div class="ll_note ll_warn"><i class="fa-solid fa-triangle-exclamation"></i> คีย์นี้ไปเจอเป็นส่วนหนึ่งของคำอื่นที่ยาวกว่า (เช่น ยา ใน พยายาม) เอนทรีอาจติดโดยที่เนื้อเรื่องไม่ได้พูดถึงมันจริง ลองใช้คีย์ที่ยาวขึ้น หรือเขียนเป็น /regex/</div>');
     } else if (rec.reason === 'unknown') {
         parts.push('<div class="ll_note">หาคีย์ในข้อความที่สแกนไม่เจอ อาจเพราะ regex ของ prompt, ไฟล์แนบ หรือ extension อื่นสั่งให้ติด</div>');
     }
@@ -1330,7 +1354,7 @@ function reportMarkdown() {
         for (const n of never) lines.push(`| ${cell(n.title)} | ${cell(n.world)} | ${cell(n.keys.join(', '))} |`);
     }
     const warn = [];
-    for (const scan of history) for (const h of scan.hits) if (h.prim?.warn === 'midword') warn.push(`- **${h.prim.key}** → ${h.title}: “${h.prim.snip.join('')}”`);
+    for (const scan of history) for (const h of scan.hits) if (primWarn(h.prim)) warn.push(`- **${h.prim.key}** → ${h.title}: “${h.prim.snip.join('')}”`);
     if (warn.length) lines.push('', '## คีย์ที่อาจติดกลางคำอื่น', '', ...[...new Set(warn)].slice(0, 40));
     return lines.join('\n');
 }
@@ -1594,7 +1618,7 @@ async function messageReportMarkdown(i, sw, { heading = '#' } = {}) {
             L.push('| | เอนทรี | Lorebook | ตำแหน่ง | คีย์ / สาเหตุ | เจอที่ | บริบท | คำตอบพูดถึง |', '|---|---|---|---|---|---|---|---|');
             for (const h of sc.hits) {
                 const why = h.reason === 'keyword' && h.prim
-                    ? `${h.prim.key}${h.sec?.filter(x => x.ok).length ? ` + ${h.sec.filter(x => x.ok).map(x => x.key).join(', ')}` : ''}${h.prim.warn ? ' ⚠ กลางคำ' : ''}`
+                    ? `${h.prim.key}${h.sec?.filter(x => x.ok).length ? ` + ${h.sec.filter(x => x.ok).map(x => x.key).join(', ')}` : ''}${primWarn(h.prim) ? ' ⚠ อาจติดกลางคำอื่น' : ''}`
                     : REASON[h.reason]?.th ?? h.reason;
                 L.push(`| ${REASON[h.reason]?.icon ?? ''}${h.loop > 1 && h.state !== 3 ? ` R${h.loop}` : ''} | ${cellMd(h.title)} | ${cellMd(h.world)} | ${cellMd(posLabel(h))} | ${cellMd(why)} | ${cellMd(h.reason === 'keyword' ? srcLabel(h.prim?.src) : '')} | ${cellMd(h.prim?.snip?.join('') ?? '')} | ${cellMd(ment(h))} |`);
             }
@@ -1882,7 +1906,7 @@ function renderSettings() {
     <div id="ll_settings" class="ll_settings">
         <div class="inline-drawer">
             <div class="inline-drawer-toggle inline-drawer-header">
-                <b>Lore Lens</b>
+                <b>Lore Lens <small class="ll_version">v${VERSION}</small></b>
                 <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
             </div>
             <div class="inline-drawer-content">
@@ -2104,6 +2128,44 @@ function registerCommands() {
     }
 }
 
+// ---------------------------------------------------------------- stale-code check
+//
+// SillyTavern loads extension files by a fixed URL, and a home-screen web app
+// on iOS rarely does a real reload, so after "Update" the old code can keep
+// running for a long time. Compare with the manifest on the server; if it is
+// newer, refresh the cached files explicitly and reload.
+
+let versionCheckedAt = 0;
+let versionToastShown = false;
+
+async function checkForNewVersion() {
+    if (versionToastShown || Date.now() - versionCheckedAt < 10 * 60_000) return;
+    versionCheckedAt = Date.now();
+    let remote;
+    try {
+        const res = await fetch(new URL('manifest.json', BASE_URL), { cache: 'no-store' });
+        if (!res.ok) return;
+        remote = String((await res.json())?.version ?? '');
+    } catch { return; }
+    if (!remote || remote === VERSION) return;
+    versionToastShown = true;
+    toast.info(`ติดตั้ง v${remote} ไว้แล้ว แต่หน้านี้ยังรัน v${VERSION} อยู่<br>แตะที่นี่เพื่อโหลดเวอร์ชันใหม่`, {
+        timeOut: 0, extendedTimeOut: 0, closeButton: true, escapeHtml: false,
+        onclick: () => reloadWithFreshFiles(),
+    });
+}
+
+async function reloadWithFreshFiles() {
+    try {
+        // cache: 'reload' fetches from the server and overwrites the browser's cached copy,
+        // so the page reload below picks up the new files.
+        await Promise.all(['index.js', 'style.css', 'manifest.json'].map(f =>
+            fetch(new URL(f, BASE_URL), { cache: 'reload' }).catch(() => null)));
+    } finally {
+        location.reload();
+    }
+}
+
 // ---------------------------------------------------------------- init
 
 async function init() {
@@ -2136,6 +2198,10 @@ async function init() {
     eventSource.on(E.CHAT_CHANGED, () => loadChat());
     if (E.APP_READY) eventSource.on(E.APP_READY, () => { loadChat(); placeButton(); });
     loadChat();
+    setTimeout(checkForNewVersion, 3000);
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') checkForNewVersion();
+    });
     console.log(LOG, 'loaded');
 }
 
@@ -2149,7 +2215,12 @@ globalThis.LoreLens = {
     messageReport: messageReportMarkdown,
     chatReport: chatReportMarkdown,
     applyLook,
+    checkForNewVersion,
+    reloadWithFreshFiles,
+    VERSION,
     _findKey: findKey,
+    _primWarn: primWarn,
+    _midWord: (text, key) => { const i = text.indexOf(key); return i < 0 ? null : midWord(text, { index: i, length: key.length, regex: false }, key); },
 };
 
 if (typeof jQuery === 'function') jQuery(() => { init(); }); else init();
