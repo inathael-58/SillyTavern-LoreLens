@@ -21,7 +21,7 @@ const DB_NAME = 'LoreLens';
 const DB_STORE = 'chats';
 const MAX_CHATS = 40;
 const EDGE = 8;
-const VERSION = '1.3.0'; // keep in sync with manifest.json
+const VERSION = '1.3.1'; // keep in sync with manifest.json
 const BASE_URL = new URL('.', import.meta.url);
 
 const DEFAULTS = Object.freeze({
@@ -322,9 +322,11 @@ const GLOBAL_FIELDS = [
  * The pieces of text this entry was scanned against, in the engine's order.
  * `loop` = the scan loop the entry was checked in; recursion text only counts from earlier loops.
  */
+const scanDepthOf = (e, src) => (Number.isFinite(Number(e.scanDepth)) && e.scanDepth !== null && e.scanDepth !== '' ? Number(e.scanDepth) : src.baseDepth);
+
 function segmentsFor(e, run, loop, state) {
     const src = run.sources;
-    const depth = Number.isFinite(Number(e.scanDepth)) && e.scanDepth !== null && e.scanDepth !== '' ? Number(e.scanDepth) : src.baseDepth;
+    const depth = scanDepthOf(e, src);
     const segs = [];
     if (depth <= 0) return segs; // the engine scans nothing at depth 0
     src.messages.slice(0, depth).forEach((m, d) => segs.push({ text: m.text, src: { type: 'mes', who: m.who, mesId: m.mesId, depth: d } }));
@@ -351,16 +353,17 @@ function extraSegments(e, run) {
     return segs;
 }
 
+/**
+ * Where a key was found. Segments come newest message first, so walking them in
+ * the outer loop reports the most recent place any key appears — not the first
+ * listed key's oldest hit, which made an entry look stuck on one old message.
+ */
 function firstMatch(keys, segs, opt, span) {
-    for (const raw of keys) {
-        const key = subst(raw).trim();
-        if (!key) continue;
-        for (const seg of segs) {
+    const list = keys.map(raw => subst(raw).trim()).filter(Boolean);
+    for (const seg of segs) {
+        for (const key of list) {
             const hit = findKey(seg.text, key, opt);
-            if (hit) {
-                const out = { key, src: seg.src, snip: snippetOf(seg.text, hit, span) };
-                return out;
-            }
+            if (hit) return { key, src: seg.src, snip: snippetOf(seg.text, hit, span) };
         }
     }
     return null;
@@ -391,7 +394,7 @@ function baseRecord(e) {
 
 function analyzeHit(a, run) {
     const e = a.entry;
-    const rec = { ...baseRecord(e), loop: a.loop, state: a.state, pos: e.position, depth: e.depth, order: e.order };
+    const rec = { ...baseRecord(e), loop: a.loop, state: a.state, pos: e.position, depth: e.depth, order: e.order, scanDepth: scanDepthOf(e, run.sources) };
     // the text that actually went into the prompt (macros already substituted by the engine)
     if (e.content) rec.content = String(e.content).slice(0, 4000);
     const span = clamp(Number(settings().snippet) || DEFAULTS.snippet, 16, 160);
@@ -1790,7 +1793,7 @@ function wireSwipeDown() {
 function srcLabel(src) {
     if (!src) return '';
     switch (src.type) {
-        case 'mes': return `ข้อความ #${src.mesId} · ${src.who === 'user' ? 'ผู้ใช้' : 'บอท'}`;
+        case 'mes': return `ข้อความ #${src.mesId} · ${src.who === 'user' ? 'ผู้ใช้' : 'บอท'}${src.depth > 0 ? ` · ย้อนไป ${src.depth}` : ''}`;
         case 'far': return `ข้อความ #${src.mesId} (เกินระยะสแกนปกติ)`;
         case 'reasoning': return `reasoning ของข้อความ #${src.mesId}`;
         case 'global': return src.label;
@@ -1859,6 +1862,8 @@ function detailHTML(rec, kind) {
     if (rec.prim) {
         parts.push(`<div class="ll_dl"><span>เจอที่</span><div><i class="${srcIcon(rec.prim.src)}"></i> ${esc(srcLabel(rec.prim.src))}</div></div>`);
         parts.push(snipHTML(rec.prim));
+        const back = rec.prim.src?.type === 'mes' ? Number(rec.prim.src.depth) : 0;
+        if (back >= 3) parts.push(`<div class="ll_note"><i class="fa-solid fa-clock-rotate-left"></i> คีย์นี้อยู่ในข้อความที่ย้อนไป ${back} ข้อความ (ข้อความล่าสุดไม่มีคีย์ของเอนทรีนี้) เอนทรีจะติดซ้ำทุกเทิร์นจนกว่าข้อความนั้นจะเลยระยะ scan depth${rec.scanDepth ? ` (ตอนนี้ ${rec.scanDepth})` : ''} ถ้าไม่อยากให้ติดนาน ลด Scan Depth ของเอนทรีนี้หรือของ World Info</div>`);
         if (primWarn(rec.prim)) parts.push('<div class="ll_note ll_warn"><i class="fa-solid fa-triangle-exclamation"></i> คีย์นี้ไปเจอเป็นส่วนหนึ่งของคำอื่นที่ยาวกว่า (เช่น ยา ใน พยายาม) เอนทรีอาจติดโดยที่เนื้อเรื่องไม่ได้พูดถึงมันจริง ลองใช้คีย์ที่ยาวขึ้น หรือเขียนเป็น /regex/</div>');
     } else if (rec.reason === 'unknown') {
         parts.push('<div class="ll_note">หาคีย์ในข้อความที่สแกนไม่เจอ อาจเพราะ regex ของ prompt, ไฟล์แนบ หรือ extension อื่นสั่งให้ติด</div>');
