@@ -21,7 +21,7 @@ const DB_NAME = 'LoreLens';
 const DB_STORE = 'chats';
 const MAX_CHATS = 40;
 const EDGE = 8;
-const VERSION = '1.3.1'; // keep in sync with manifest.json
+const VERSION = '1.4.0'; // keep in sync with manifest.json
 const BASE_URL = new URL('.', import.meta.url);
 
 const DEFAULTS = Object.freeze({
@@ -55,6 +55,8 @@ const DEFAULTS = Object.freeze({
     // prompt token breakdown
     tokens: true,
     tokenOrigin: true,               // name the extension behind each extension prompt (stack trace)
+    // links
+    loreMaster: true,                // "open in lorebook" opens the entry in Lore Master when it is installed
 });
 
 const BTN_STYLES = Object.freeze({
@@ -1882,7 +1884,7 @@ function detailHTML(rec, kind) {
     parts.push(`<div class="ll_dl"><span>Lorebook</span><div>${esc(rec.world)} <small>· uid ${esc(rec.uid)}</small></div></div>`);
     parts.push(`<div class="ll_content" data-world="${esc(rec.world)}" data-uid="${esc(rec.uid)}"><i class="fa-solid fa-spinner fa-spin"></i></div>`);
     parts.push(`<div class="ll_actions">
-        <div class="menu_button ll_act" data-act="open-entry"><i class="fa-solid fa-pen-to-square"></i> เปิดใน lorebook</div>
+        <div class="menu_button ll_act" data-act="open-entry" title="${useLoreMaster() ? 'เปิดใน Lore Master (กดพร้อม Shift/Alt เพื่อเปิดหน้า World Info เดิมของ ST)' : 'เปิดในหน้า World Info ของ ST'}"><i class="fa-solid fa-pen-to-square"></i> ${useLoreMaster() ? 'เปิดใน Lore Master' : 'เปิดใน lorebook'}</div>
         <div class="menu_button ll_act" data-act="copy-entry"><i class="fa-regular fa-copy"></i> คัดลอก</div>
     </div>`);
     return `<div class="ll_detail">${parts.join('')}</div>`;
@@ -2686,8 +2688,18 @@ async function fillContent(el) {
         ].filter(Boolean).join(' · ')}</small>`;
 }
 
-async function openEntry(world, uid) {
+/** Lore Master (same author) is installed and the user wants entry links to open there. */
+const useLoreMaster = () => !!settings().loreMaster && typeof globalThis.LoreMaster?.openEntry === 'function';
+
+async function openEntry(world, uid, ev) {
     closeSheet();
+    if (useLoreMaster() && !ev?.shiftKey && !ev?.altKey) {
+        try {
+            if (await globalThis.LoreMaster.openEntry(world, uid)) return;
+        } catch (err) {
+            console.warn(LOG, 'Lore Master could not open the entry, using ST\'s panel', err);
+        }
+    }
     try {
         if (WI?.openWorldInfoEditor) WI.openWorldInfoEditor(world);
         else document.getElementById('WIDrawerIcon')?.click();
@@ -2748,7 +2760,7 @@ async function onBodyClick(e) {
     if (act) {
         if (act === 'open-entry' && row) {
             const rec = findRec(row.dataset.kind, row.dataset.k);
-            if (rec) openEntry(rec.world, rec.uid);
+            if (rec) openEntry(rec.world, rec.uid, e);
         } else if (act === 'copy-entry' && row) {
             const rec = findRec(row.dataset.kind, row.dataset.k);
             if (rec && await copyText(recText(rec))) toast.ok('คัดลอกแล้ว');
@@ -2927,6 +2939,8 @@ function renderSettings() {
                 <div class="ll_set_title">โทเคนของ prompt</div>
                 <label class="checkbox_label" title="แยกว่า prompt แต่ละครั้งใช้โทเคนกับ preset prompt, ตัวละคร, World Info, แชท และแต่ละ extension เท่าไร — ดูในแท็บ “โทเคน”"><input type="checkbox" id="ll_tokens"> เก็บรายละเอียดโทเคนของแต่ละเทิร์น</label>
                 <label class="checkbox_label" title="ดูจาก stack trace ว่าสคริปต์ของ extension ไหนเป็นคนตั้ง extension prompt — มีผลหลังรีโหลดหน้า"><input type="checkbox" id="ll_tokorigin"> ระบุชื่อ extension เจ้าของ prompt</label>
+                <div class="ll_set_title">ลิงก์ไป lorebook</div>
+                <label class="checkbox_label" title="ปุ่ม “เปิดใน lorebook” ของแต่ละเอนทรีจะเปิดเอนทรีนั้นใน Lore Master ถ้าติดตั้งไว้ (ไม่มีก็เปิดหน้า World Info ของ ST เหมือนเดิม) · กดพร้อม Shift/Alt เพื่อเปิดหน้าเดิมของ ST"><input type="checkbox" id="ll_loremaster"> เปิดเอนทรีใน Lore Master (ถ้าติดตั้งไว้)</label>
                 <div class="ll_set_title">อื่น ๆ</div>
                 <div class="ll_set_btns">
                     <div id="ll_open" class="menu_button"><i class="fa-solid fa-book-atlas"></i> เปิด Lore Lens</div>
@@ -2962,6 +2976,7 @@ function renderSettings() {
     check('ll_repcontent', 'reportContent');
     check('ll_tokens', 'tokens', () => { if (s.tokens) { installPromptTrap(); wrapInterceptors(); } });
     check('ll_tokorigin', 'tokenOrigin', installPromptTrap);
+    check('ll_loremaster', 'loreMaster', () => { if (isOpen()) render(); });
     num('ll_hist', 'historySize', 5, 200);
     num('ll_snip', 'snippet', 16, 160);
     $('ll_open').addEventListener('click', () => openSheet());
