@@ -6,7 +6,7 @@
     "js": "index.js",
     "css": "style.css",
     "author": "Kitima",
-    "version": "1.4.0",
+    "version": "1.4.1",
     "homePage": "https://github.com/inathael-58/SillyTavern-LoreLens",
     "description": "See which World Info entries went into the prompt, the keyword that triggered each one and where it was found, an \"open in lorebook\" link that opens the entry in Lore Master when it is installed, plus a per-source token breakdown of each prompt (preset prompts, card, World Info, chat, each extension). Mobile bottom sheet, Quick Dock friendly."
 }

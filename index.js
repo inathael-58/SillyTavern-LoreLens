@@ -15,13 +15,15 @@
  * uses (case sensitivity, whole words, /regex/ keys, scan depth, macros).
  */
 
+import { createDiagnostics } from './diagnostics.js';
+
 const MODULE = 'lore_lens';
 const LOG = '[LoreLens]';
 const DB_NAME = 'LoreLens';
 const DB_STORE = 'chats';
 const MAX_CHATS = 40;
 const EDGE = 8;
-const VERSION = '1.4.0'; // keep in sync with manifest.json
+const VERSION = '1.4.1'; // keep in sync with manifest.json
 const BASE_URL = new URL('.', import.meta.url);
 
 const DEFAULTS = Object.freeze({
@@ -1629,6 +1631,19 @@ function makeDraggable(el) {
 
 let layer = null;
 let sheet = null;
+
+// Extensions > Lore Lens > Diagnose (and /lorelens-debug): opens the sheet, measures it, reports.
+const DIAG = createDiagnostics({
+    name: 'Lore Lens',
+    version: VERSION,
+    baseUrl: BASE_URL,
+    open: () => openSheet(),
+    close: () => closeSheet(),
+    isOpen: () => isOpen(),
+    overlay: () => document.getElementById('ll_layer'),
+    frame: () => sheet,
+    state: () => `button=${settings().showButton ?? '-'} pos=${JSON.stringify(settings().btnPos ?? null)}`,
+});
 let backdrop = null;
 const view = { index: 0, pIndex: 0, tab: 'hit', open: new Set(), tkOpen: new Set(), query: '' };
 
@@ -1725,7 +1740,9 @@ function openSheet(tab) {
     if (tab) view.tab = tab;
     alertState = '';
     updateButton();
-    render();
+    DIAG.noteOpen(tab ?? '');
+    // A drawing error must not keep the sheet hidden: open it anyway and say why.
+    try { render(); } catch (err) { DIAG.reportError('วาด Lore Lens ไม่ได้', err); }
     placeSheet();
     layer.classList.add('ll_open');
     sheet.classList.add('ll_open');
@@ -1734,6 +1751,7 @@ function openSheet(tab) {
 
 function closeSheet() {
     if (!isOpen()) return;
+    DIAG.noteClose();
     if (sheet.contains(document.activeElement)) document.activeElement.blur();
     sheet.classList.remove('ll_open');
     layer.classList.remove('ll_open');
@@ -2980,6 +2998,7 @@ function renderSettings() {
     num('ll_hist', 'historySize', 5, 200);
     num('ll_snip', 'snippet', 16, 160);
     $('ll_open').addEventListener('click', () => openSheet());
+    DIAG.mount($('ll_open').parentElement);
     $('ll_resetpos').addEventListener('click', () => { s.btnPos = { ...DEFAULTS.btnPos }; save(); applyLook(); });
 
     // ---- appearance
@@ -3091,6 +3110,7 @@ function registerCommands() {
     try {
         const { SlashCommandParser, SlashCommand, SlashCommandArgument, ARGUMENT_TYPE } = ctx();
         if (!SlashCommandParser || !SlashCommand) return;
+        DIAG.registerCommand(ctx(), 'lorelens-debug');
         SlashCommandParser.addCommandObject(SlashCommand.fromProps({
             name: 'lorelens',
             callback: (_args, value) => {
@@ -3146,7 +3166,7 @@ async function reloadWithFreshFiles() {
     try {
         // cache: 'reload' fetches from the server and overwrites the browser's cached copy,
         // so the page reload below picks up the new files.
-        await Promise.all(['index.js', 'style.css', 'manifest.json'].map(f =>
+        await Promise.all(['index.js', 'diagnostics.js', 'style.css', 'manifest.json'].map(f =>
             fetch(new URL(f, BASE_URL), { cache: 'reload' }).catch(() => null)));
     } finally {
         location.reload();
