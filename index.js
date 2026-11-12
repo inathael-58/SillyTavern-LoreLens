@@ -23,7 +23,7 @@ const DB_NAME = 'LoreLens';
 const DB_STORE = 'chats';
 const MAX_CHATS = 40;
 const EDGE = 8;
-const VERSION = '1.4.1'; // keep in sync with manifest.json
+const VERSION = '1.4.2'; // keep in sync with manifest.json
 const BASE_URL = new URL('.', import.meta.url);
 
 const DEFAULTS = Object.freeze({

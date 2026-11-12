@@ -639,3 +639,16 @@ body.ll_nomesbtn .ll_mes_report { display: none; }
 #ll_sheet .ll_tk_avgtotal { margin-top: 3px; padding-top: 4px; border-top: 1px solid var(--ll-soft); }
 #ll_sheet .ll_tk_mini { display: flex; flex-direction: column; gap: 6px; margin-bottom: 6px; padding: 8px 10px; border-radius: 10px; border: 1px solid var(--ll-soft); cursor: pointer; }
 #ll_sheet .ll_tk_mini .ll_tk_label b { color: var(--ll-accent); }
+
+/* ---------------------------------------------------------------- solid surfaces
+   Blur Tint often carries alpha: glass themes pair it with a backdrop blur. A surface
+   with no blur of its own (a sticky header, or any panel once Fast UI's body.no-blur
+   strips every backdrop-filter) would let the chat or the list underneath show through,
+   so those paint the tint with its alpha dropped. `/ 1` matters: relative colour keeps
+   the source alpha when it is left out. */
+#ll_sheet { --ll-solid: var(--ll-bg); }
+@supports (color: rgb(from red r g b / 1)) {
+    #ll_sheet { --ll-solid: rgb(from var(--ll-bg) r g b / 1); }
+    .ll_s_classic .ll_count { color: rgb(from var(--ll-bg) r g b / 1); }
+}
+body.no-blur #ll_sheet { background: var(--ll-solid); }
