@@ -68,23 +68,27 @@
 #ll_button.ll_dragging { transition: none; opacity: 0.85; cursor: grabbing; }
 #ll_button:focus-visible { outline: 2px solid var(--ll-accent); outline-offset: 2px; }
 
-/* classic: icon + badge at the lower right */
+/* classic: icon + number badge at the upper right — same size and corner as every
+ * other extension's floating-button badge (see float-colors.js), so they line up in Quick Dock */
 .ll_s_classic .ll_count {
     position: absolute;
-    right: -4px;
-    bottom: -3px;
-    min-width: max(15px, calc(var(--ll-size) * 0.42));
-    height: max(15px, calc(var(--ll-size) * 0.42));
-    padding: 0 0.3em;
+    z-index: 2;
+    top: -5px;   /* -4px from the outer edge: the button has a 1px border */
+    right: -5px;
+    min-width: 18px;
+    height: 18px;
+    padding: 0 5px;
     box-sizing: border-box;
     border-radius: 999px;
-    font: 600 max(9.5px, calc(var(--ll-size) * 0.26)) / max(15px, calc(var(--ll-size) * 0.42)) var(--mainFontFamily, sans-serif);
+    font: 700 10.5px/18px var(--mainFontFamily, sans-serif);
+    font-variant-numeric: tabular-nums;
     text-align: center;
-    color: var(--ll-bg);
+    color: var(--ll-on-accent, var(--ll-bg));
     background: var(--ll-accent);
+    box-shadow: 0 0 0 2px var(--ll-bg);
     pointer-events: none;
 }
-.ll_s_classic.ll_zero .ll_count { background: var(--ll-border); color: var(--ll-fg); }
+.ll_s_classic.ll_zero .ll_count { background: var(--ll-bg); color: var(--ll-fg); box-shadow: inset 0 0 0 1px var(--ll-border), 0 0 0 2px var(--ll-bg); }
 
 /* the number as text (minimal, pill, tab, ring) */
 .ll_s_minimal .ll_count,
@@ -160,7 +164,7 @@
 /* budget overflow */
 .ll_btn[data-state="attention"] { border-color: var(--ll-bad); color: var(--ll-bad); animation: ll_pulse 1.4s ease-in-out infinite; }
 .ll_btn[data-state="attention"] .ll_count { color: var(--ll-bad); }
-.ll_s_classic[data-state="attention"] .ll_count { background: var(--ll-bad); color: #fff; }
+.ll_s_classic[data-state="attention"] .ll_count { background: var(--ll-bad); color: var(--ll-bg); }
 .ll_s_ring[data-state="attention"] .ll_ring { background: var(--ll-bad); }
 @keyframes ll_pulse { 50% { box-shadow: 0 0 0 5px rgba(229, 72, 77, 0.3); } }
 
@@ -649,7 +653,6 @@ body.ll_nomesbtn .ll_mes_report { display: none; }
 #ll_sheet { --ll-solid: var(--ll-bg); }
 @supports (color: rgb(from red r g b / 1)) {
     #ll_sheet { --ll-solid: rgb(from var(--ll-bg) r g b / 1); }
-    .ll_s_classic .ll_count { color: rgb(from var(--ll-bg) r g b / 1); }
 }
 body.no-blur #ll_sheet { background: var(--ll-solid); }
 

@@ -17,6 +17,7 @@
 
 import { createDiagnostics } from './diagnostics.js';
 import { installThemePalette } from './theme-palette.js';
+import { floatColors, COLOR_MODE_LABELS } from './float-colors.js';
 
 const MODULE = 'lore_lens';
 const LOG = '[LoreLens]';
@@ -24,7 +25,7 @@ const DB_NAME = 'LoreLens';
 const DB_STORE = 'chats';
 const MAX_CHATS = 40;
 const EDGE = 8;
-const VERSION = '1.4.3'; // keep in sync with manifest.json
+const VERSION = '1.5.0'; // keep in sync with manifest.json
 const BASE_URL = new URL('.', import.meta.url);
 
 const DEFAULTS = Object.freeze({
@@ -42,10 +43,11 @@ const DEFAULTS = Object.freeze({
     btnSize: 40,                     // px
     iconScale: 42,                   // % of the button
     btnIcon: 'fa-solid fa-book-atlas',
-    iconColor: 'body',               // see COLOR_SOURCES
-    bgColor: 'tint',
-    borderColor: 'border',
-    accentColor: 'quote',            // number badge + highlights in the panel
+    // 'auto' = adaptive (from the theme palette, always readable) · 'custom' = customColors, on every theme
+    iconColor: 'auto',
+    bgColor: 'auto',
+    borderColor: 'auto',
+    accentColor: 'auto',             // number badge + highlights in the panel
     customColors: Object.freeze({ icon: '#ffffff', bg: '#1e1e28', border: '#777777', accent: '#e18a24' }),
     bgOpacity: 75,                   // % — button background
     idleOpacity: 100,                // % — whole button while not touched
@@ -63,24 +65,13 @@ const DEFAULTS = Object.freeze({
 });
 
 const BTN_STYLES = Object.freeze({
-    classic: ['คลาสสิก', 'ไอคอน + ตัวเลขมุมขวาล่าง'],
+    classic: ['คลาสสิก', 'ไอคอน + ตัวเลขมุมขวาบน'],
     minimal: ['มินิมอล', 'ตัวเลขอย่างเดียว'],
     pill: ['แคปซูล', 'ไอคอนกับตัวเลขเรียงกัน'],
     tab: ['แถบขอบจอ', 'ติดขอบจอแบบที่คั่นหนังสือ กินที่น้อย'],
     ring: ['วงแหวน', 'ตัวเลขกลาง วงแหวนเทียบกับครั้งที่ติดมากที่สุดในแชทนี้'],
 });
 
-const COLOR_SOURCES = Object.freeze({
-    body: ['ตัวอักษรหลัก (Main Text)', '--SmartThemeBodyColor'],
-    em: ['ตัวเอียง (Italics)', '--SmartThemeEmColor'],
-    underline: ['ขีดเส้นใต้ (Underline)', '--SmartThemeUnderlineColor'],
-    quote: ['คำพูด (Quote)', '--SmartThemeQuoteColor'],
-    tint: ['พื้นเบลอ (UI Background)', '--SmartThemeBlurTintColor'],
-    chat: ['พื้นแชท (Chat Background)', '--SmartThemeChatTintColor'],
-    border: ['ขอบ (UI Border)', '--SmartThemeBorderColor'],
-    shadow: ['เงา (Shadow)', '--SmartThemeShadowColor'],
-    custom: ['กำหนดเอง…', null],
-});
 
 const ICONS = [
     'fa-solid fa-book-atlas', 'fa-solid fa-book', 'fa-solid fa-book-open', 'fa-solid fa-book-bookmark', 'fa-solid fa-scroll',
@@ -141,6 +132,8 @@ function settings() {
         if (s[k] === undefined) s[k] = v && typeof v === 'object' ? { ...v } : v;
     }
     s.customColors = { ...DEFAULTS.customColors, ...(s.customColors || {}) };
+    // 1.5: the theme-slot choices (Quote, Main Text, UI Background…) became one adaptive mode
+    for (const k of ['iconColor', 'bgColor', 'borderColor', 'accentColor']) if (s[k] !== 'custom') s[k] = 'auto';
     return s;
 }
 const save = () => ctx().saveSettingsDebounced();
@@ -1466,11 +1459,13 @@ function cleanIcon(v) {
     return v.slice(0, 8);
 }
 
-function colorValue(key, which) {
+let palette = null; // theme-palette.js handle
+
+/** The button's colours: adaptive slots follow the theme palette and stay readable on the button's background. */
+function buttonColors() {
     const s = settings();
-    if (key === 'custom') return s.customColors[which] || DEFAULTS.customColors[which];
-    const v = COLOR_SOURCES[key]?.[1];
-    return v ? `var(${v})` : null;
+    const own = (key, which) => (s[key] === 'custom' ? s.customColors[which] || DEFAULTS.customColors[which] : null);
+    return floatColors(palette?.current, { fg: own('iconColor', 'icon'), bg: own('bgColor', 'bg'), border: own('borderColor', 'border'), accent: own('accentColor', 'accent') });
 }
 
 const btnStyle = () => (BTN_STYLES[settings().btnStyle] ? settings().btnStyle : 'classic');
@@ -1484,10 +1479,15 @@ function styleButton(el, style = btnStyle()) {
     const set = (k, v) => el.style.setProperty(k, v);
     set('--ll-size', `${clamp(Number(s.btnSize) || DEFAULTS.btnSize, 24, 80)}px`);
     set('--ll-icon', String(clamp(Number(s.iconScale) || DEFAULTS.iconScale, 25, 75) / 100));
-    set('--ll-fg', colorValue(s.iconColor, 'icon') ?? 'var(--SmartThemeBodyColor)');
-    set('--ll-bg', colorValue(s.bgColor, 'bg') ?? 'var(--SmartThemeBlurTintColor)');
-    set('--ll-border', colorValue(s.borderColor, 'border') ?? 'var(--SmartThemeBorderColor)');
-    set('--ll-accent', colorValue(s.accentColor, 'accent') ?? 'var(--SmartThemeQuoteColor)');
+    const c = buttonColors();
+    if (c) {
+        set('--ll-fg', c.fg);
+        set('--ll-bg', c.bg);
+        set('--ll-border', c.border);
+        set('--ll-accent', c.accent);
+        set('--ll-on-accent', c.onAccent);
+        set('--ll-bad', c.danger);
+    }
     set('--ll-bg-op', `${clamp(Number.isFinite(Number(s.bgOpacity)) ? Number(s.bgOpacity) : DEFAULTS.bgOpacity, 0, 100)}%`);
     set('--ll-idle-op', String(clamp(Number(s.idleOpacity) || 100, 15, 100) / 100));
     for (const k of Object.keys(BTN_STYLES)) el.classList.toggle(`ll_s_${k}`, style === k);
@@ -1533,8 +1533,10 @@ function applyLook() {
     updateButton();
     placeButton();
     renderLookPreviews();
-    // the panel's highlight colour follows the badge colour
-    sheet?.style.setProperty('--ll-accent', colorValue(settings().accentColor, 'accent') ?? 'var(--SmartThemeQuoteColor)');
+    // the panel's highlight colour follows a picked badge colour; adaptive uses the panel's own readable accent
+    const s = settings();
+    if (s.accentColor === 'custom') sheet?.style.setProperty('--ll-accent', s.customColors.accent || DEFAULTS.customColors.accent);
+    else sheet?.style.removeProperty('--ll-accent');
 }
 
 function syncEdge() {
@@ -2880,7 +2882,7 @@ async function onBodyClick(e) {
 function colorRow(id, label) {
     return `<label for="${id}">${label}</label>
         <div class="ll_colorpick">
-            <select id="${id}" class="text_pole">${Object.entries(COLOR_SOURCES).map(([k, [name]]) => `<option value="${k}">${esc(name)}</option>`).join('')}</select>
+            <select id="${id}" class="text_pole">${Object.entries(COLOR_MODE_LABELS).map(([k, name]) => `<option value="${k}">${esc(name)}</option>`).join('')}</select>
             <input type="color" id="${id}_pick" aria-label="${label} (กำหนดเอง)">
         </div>`;
 }
@@ -3167,7 +3169,7 @@ async function reloadWithFreshFiles() {
     try {
         // cache: 'reload' fetches from the server and overwrites the browser's cached copy,
         // so the page reload below picks up the new files.
-        await Promise.all(['index.js', 'diagnostics.js', 'theme-palette.js', 'style.css', 'manifest.json'].map(f =>
+        await Promise.all(['index.js', 'diagnostics.js', 'theme-palette.js', 'float-colors.js', 'style.css', 'manifest.json'].map(f =>
             fetch(new URL(f, BASE_URL), { cache: 'reload' }).catch(() => null)));
     } finally {
         location.reload();
@@ -3179,7 +3181,8 @@ async function reloadWithFreshFiles() {
 async function init() {
     if (document.getElementById('ll_button')) return;
     // สีที่อ่านออกเสมอ: แผงข้อมูลทึบ สีเน้นตัดกับพื้นจริง (ดู theme-palette.js)
-    try { installThemePalette({ prefix: 'll' }); } catch (err) { console.warn(LOG, 'theme palette', err); }
+    // ปุ่มลอยแบบ "ปรับตามธีม" ก็ดึงสีจากชุดนี้ (float-colors.js) แล้วคำนวณใหม่เมื่อเปลี่ยนธีม
+    try { palette = installThemePalette({ prefix: 'll' }); palette.onChange(() => applyLook()); } catch (err) { console.warn(LOG, 'theme palette', err); }
     settings();
     try { WI = await import('../../../world-info.js'); } catch (err) { console.warn(LOG, 'world-info.js not found; using defaults', err); }
     try { RX = await import('../../regex/engine.js'); } catch { RX = null; }
