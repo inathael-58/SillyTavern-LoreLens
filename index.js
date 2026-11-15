@@ -16,6 +16,7 @@
  */
 
 import { createDiagnostics } from './diagnostics.js';
+import { installThemePalette } from './theme-palette.js';
 
 const MODULE = 'lore_lens';
 const LOG = '[LoreLens]';
@@ -23,7 +24,7 @@ const DB_NAME = 'LoreLens';
 const DB_STORE = 'chats';
 const MAX_CHATS = 40;
 const EDGE = 8;
-const VERSION = '1.4.2'; // keep in sync with manifest.json
+const VERSION = '1.4.3'; // keep in sync with manifest.json
 const BASE_URL = new URL('.', import.meta.url);
 
 const DEFAULTS = Object.freeze({
@@ -3166,7 +3167,7 @@ async function reloadWithFreshFiles() {
     try {
         // cache: 'reload' fetches from the server and overwrites the browser's cached copy,
         // so the page reload below picks up the new files.
-        await Promise.all(['index.js', 'diagnostics.js', 'style.css', 'manifest.json'].map(f =>
+        await Promise.all(['index.js', 'diagnostics.js', 'theme-palette.js', 'style.css', 'manifest.json'].map(f =>
             fetch(new URL(f, BASE_URL), { cache: 'reload' }).catch(() => null)));
     } finally {
         location.reload();
@@ -3177,6 +3178,8 @@ async function reloadWithFreshFiles() {
 
 async function init() {
     if (document.getElementById('ll_button')) return;
+    // สีที่อ่านออกเสมอ: แผงข้อมูลทึบ สีเน้นตัดกับพื้นจริง (ดู theme-palette.js)
+    try { installThemePalette({ prefix: 'll' }); } catch (err) { console.warn(LOG, 'theme palette', err); }
     settings();
     try { WI = await import('../../../world-info.js'); } catch (err) { console.warn(LOG, 'world-info.js not found; using defaults', err); }
     try { RX = await import('../../regex/engine.js'); } catch { RX = null; }

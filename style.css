@@ -652,3 +652,15 @@ body.ll_nomesbtn .ll_mes_report { display: none; }
     .ll_s_classic .ll_count { color: rgb(from var(--ll-bg) r g b / 1); }
 }
 body.no-blur #ll_sheet { background: var(--ll-solid); }
+
+/* แม่แบบสีที่อ่านออกเสมอ (theme-palette.js) — เฉพาะแผงที่แสดงข้อมูล: พื้นทึบ และสีเน้น/ตัวอักษรตัดกับพื้นจริง
+   ทำงานเมื่อคำนวณสีสำเร็จแล้วเท่านั้น (<html class="ll-pal">) ถ้าไม่สำเร็จจะใช้สีธีมตรง ๆ แบบเดิม
+   ปุ่มลอย (.ll_btn) ไม่อยู่ในนี้ — คงความโปร่งตามที่ตั้งไว้ */
+html.ll-pal :is(#ll_sheet, .ll_settings) {
+    --SmartThemeBlurTintColor: var(--ll-p-surface);
+    --SmartThemeBodyColor: var(--ll-p-fg);
+    --SmartThemeQuoteColor: var(--ll-p-accent-text);
+    --SmartThemeEmColor: var(--ll-p-em);
+    --SmartThemeUnderlineColor: var(--ll-p-underline);
+    --SmartThemeBorderColor: var(--ll-p-line);
+}
