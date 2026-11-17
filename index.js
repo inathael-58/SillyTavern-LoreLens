@@ -25,7 +25,7 @@ const DB_NAME = 'LoreLens';
 const DB_STORE = 'chats';
 const MAX_CHATS = 40;
 const EDGE = 8;
-const VERSION = '1.5.0'; // keep in sync with manifest.json
+const VERSION = '1.5.1'; // keep in sync with manifest.json
 const BASE_URL = new URL('.', import.meta.url);
 
 const DEFAULTS = Object.freeze({
@@ -78,20 +78,22 @@ const ICONS = [
     'fa-solid fa-bookmark', 'fa-solid fa-magnifying-glass', 'fa-solid fa-eye', 'fa-solid fa-key', 'fa-solid fa-feather',
     'fa-solid fa-globe', 'fa-solid fa-earth-asia', 'fa-solid fa-map', 'fa-solid fa-compass', 'fa-solid fa-lightbulb',
     'fa-solid fa-wand-magic-sparkles', 'fa-solid fa-gem', 'fa-solid fa-moon', 'fa-solid fa-dragon', 'fa-solid fa-cat',
-    '📖', '📜', '🔍', '🗝️', '🔮', '🌸', '🍀', '✨',
+    '📖', '📜', '🔍', '🗝️', '🔮', '🌸', '🍀', '✨', // slop-ok: user-picked icons
 ];
 
 const LOGIC = ['AND ANY', 'NOT ALL', 'NOT ANY', 'AND ALL'];
 const LOGIC_TH = ['มีคีย์รองอย่างน้อย 1', 'ขาดคีย์รองอย่างน้อย 1', 'ไม่มีคีย์รองเลย', 'มีคีย์รองครบทุกตัว'];
 
+// fa: the icon in the panel. icon: the same reason in the copied Markdown report, which is
+// plain text and has no icon font (slop-ok on those lines).
 const REASON = {
-    keyword: { icon: '🟢', th: 'คีย์เวิร์ด' },
-    constant: { icon: '🔵', th: 'ค่าคงที่ (constant)' },
-    sticky: { icon: '📌', th: 'ค้าง (sticky) จากรอบก่อน' },
-    forced: { icon: '⚡', th: 'ถูกสั่งให้ติด (vector / extension)' },
-    vector: { icon: '🔗', th: 'vector' },
-    decorator: { icon: '✳️', th: '@@activate' },
-    unknown: { icon: '❔', th: 'หาตำแหน่งคีย์ไม่เจอ' },
+    keyword: { fa: 'fa-solid fa-magnifying-glass', icon: '🟢', th: 'คีย์เวิร์ด' }, // slop-ok: Markdown report only
+    constant: { fa: 'fa-solid fa-infinity', icon: '🔵', th: 'ค่าคงที่ (constant)' }, // slop-ok: Markdown report only
+    sticky: { fa: 'fa-solid fa-thumbtack', icon: '📌', th: 'ค้าง (sticky) จากรอบก่อน' }, // slop-ok: Markdown report only
+    forced: { fa: 'fa-solid fa-bolt', icon: '⚡', th: 'ถูกสั่งให้ติด (vector / extension)' }, // slop-ok: Markdown report only
+    vector: { fa: 'fa-solid fa-link', icon: '🔗', th: 'vector' }, // slop-ok: Markdown report only
+    decorator: { fa: 'fa-solid fa-asterisk', icon: '✳️', th: '@@activate' }, // slop-ok: Markdown report only
+    unknown: { fa: 'fa-solid fa-circle-question', icon: '❔', th: 'หาตำแหน่งคีย์ไม่เจอ' }, // slop-ok: Markdown report only
 };
 
 const WHY = {
@@ -1450,7 +1452,7 @@ let alertState = '';
 function iconHTML(icon) {
     const v = String(icon ?? '').trim();
     if (/(^|\s)fa-/.test(v)) return `<i class="${esc(v.replace(/[^\w\s-]/g, ''))}"></i>`;
-    return `<span class="ll_emoji">${esc(v || '📖')}</span>`;
+    return `<span class="ll_emoji">${esc(v || '📖')}</span>`; // slop-ok: the user's own launcher icon
 }
 
 function cleanIcon(v) {
@@ -1842,7 +1844,7 @@ const snipHTML = p => (p?.snip ? `<div class="ll_snip">${esc(p.snip[0])}<mark>${
 function keyChips(rec) {
     const chips = [];
     const warn = primWarn(rec.prim);
-    if (rec.prim) chips.push(`<span class="ll_chip ll_prim${warn ? ' ll_warnchip' : ''}" title="คีย์หลักที่ทำให้ติด${warn ? ' — เจออยู่ในคำอื่นที่ยาวกว่า อาจติดผิดคำ' : ''}"><i class="fa-solid fa-key"></i>${esc(rec.prim.key)}${warn ? ' ⚠' : ''}</span>`);
+    if (rec.prim) chips.push(`<span class="ll_chip ll_prim${warn ? ' ll_warnchip' : ''}" title="คีย์หลักที่ทำให้ติด${warn ? ' — เจออยู่ในคำอื่นที่ยาวกว่า อาจติดผิดคำ' : ''}"><i class="fa-solid fa-key"></i>${esc(rec.prim.key)}${warn ? ' <i class="fa-solid fa-triangle-exclamation"></i>' : ''}</span>`);
     for (const s of rec.sec ?? []) {
         if (s.ok) chips.push(`<span class="ll_chip ll_secok" title="คีย์รองที่เจอ">+ ${esc(s.key)}</span>`);
     }
@@ -1851,7 +1853,7 @@ function keyChips(rec) {
 
 function reasonBadge(rec) {
     const r = REASON[rec.reason] ?? REASON.unknown;
-    return `<span class="ll_reason" title="${esc(r.th)}">${r.icon}</span>`;
+    return `<span class="ll_reason" title="${esc(r.th)}"><i class="${r.fa}"></i></span>`;
 }
 
 function hitRowHTML(rec, kind) {
@@ -1974,7 +1976,7 @@ function render() {
         const link = at >= 0
             ? `<div class="ll_msglink" role="button" tabindex="0" data-act="rep-open" data-i="${at}" data-s="${scan.msg.swipe}"><i class="fa-solid fa-reply fa-flip-horizontal"></i> คำตอบที่ได้: ข้อความ #${at}${scan.msg.swipe ? ` · swipe ${scan.msg.swipe + 1}` : ''}<span>ดูรายงาน <i class="fa-solid fa-chevron-right"></i></span></div>`
             : '';
-        body.innerHTML = `${link}<div class="ll_summary">${summary.join('')}<span class="ll_legend" title="🟢 คีย์เวิร์ด · 🔵 constant · 📌 sticky · ⚡ ถูกสั่งให้ติด · 🔗 vector · R2 = ติดจาก recursion รอบที่ 2">?</span></div>${list}`;
+        body.innerHTML = `${link}<div class="ll_summary">${summary.join('')}<span class="ll_legend" title="ไอคอนหน้าเอนทรี: แว่นขยาย = คีย์เวิร์ด · อินฟินิตี้ = constant · หมุด = sticky · สายฟ้า = ถูกสั่งให้ติด · โซ่ = vector · R2 = ติดจาก recursion รอบที่ 2">?</span></div>${list}`;
     } else {
         if (scan.near == null) {
             body.innerHTML = '<div class="ll_empty ll_small"><i class="fa-solid fa-spinner fa-spin"></i> กำลังวิเคราะห์…</div>';
@@ -2247,8 +2249,8 @@ function renderStatsList() {
         a.src.user ? `<span><i class="fa-solid fa-user"></i> ${a.src.user}</span>` : '',
         a.src.bot ? `<span><i class="fa-solid fa-robot"></i> ${a.src.bot}</span>` : '',
         a.src.rec ? `<span><i class="fa-solid fa-arrows-rotate"></i> ${a.src.rec}</span>` : '',
-        a.reasons.constant ? `<span>🔵 ${a.reasons.constant}</span>` : '',
-        a.reasons.sticky ? `<span>📌 ${a.reasons.sticky}</span>` : '',
+        a.reasons.constant ? `<span title="${REASON.constant.th}"><i class="${REASON.constant.fa}"></i> ${a.reasons.constant}</span>` : '',
+        a.reasons.sticky ? `<span title="${REASON.sticky.th}"><i class="${REASON.sticky.fa}"></i> ${a.reasons.sticky}</span>` : '',
     ].join('');
     const unused = a => (a.keys ?? []).filter(k => !a.keyCount[subst(k).trim()]);
 
@@ -2529,7 +2531,7 @@ function renderReport(body) {
         ${d.prev ? `<details class="ll_rep_block"><summary><i class="fa-solid fa-user"></i> ข้อความก่อนหน้า #${d.prev.i} · ${esc(d.prev.name)}</summary><div class="ll_rep_text">${highlight(d.prev.text, keys)}</div></details>` : ''}
         <details class="ll_rep_block"${long(d.text) ? '' : ' open'}><summary><i class="fa-solid fa-comment"></i> คำตอบ <small>${d.text.length.toLocaleString()} ตัวอักษร</small></summary><div class="ll_rep_text">${highlight(d.text, keys) || '<i>ว่าง</i>'}</div></details>
         ${d.reasoning ? `<details class="ll_rep_block"><summary><i class="fa-solid fa-brain"></i> Chain of thought <small>${d.reasoning.length.toLocaleString()} ตัวอักษร</small></summary><div class="ll_rep_text">${highlight(d.reasoning, keys)}</div></details>` : '<div class="ll_note"><i class="fa-solid fa-brain"></i> ข้อความนี้ไม่มี CoT แยกเก็บไว้</div>'}
-        <div class="ll_note">คำที่ไฮไลต์ = คีย์ของเอนทรีที่ติด · 💬 = คำตอบ/CoT มีคีย์ของเอนทรีนั้น (ตรวจแบบคร่าว ๆ จากคีย์ ไม่ได้อ่านความหมาย)</div>
+        <div class="ll_note">คำที่ไฮไลต์ = คีย์ของเอนทรีที่ติด · <i class="fa-solid fa-comment"></i> / <i class="fa-solid fa-brain"></i> = คำตอบ/CoT มีคีย์ของเอนทรีนั้น (ตรวจแบบคร่าว ๆ จากคีย์ ไม่ได้อ่านความหมาย)</div>
         ${tokHTML}
         ${scansHTML}`;
     body.querySelectorAll('.ll_rep_content').forEach(el => el.addEventListener('toggle', () => fillRepContent(el), { once: true }));
@@ -2569,7 +2571,7 @@ async function messageReportMarkdown(i, sw, { heading = '#' } = {}) {
         return L.join('\n');
     }
     for (const [n, sc] of d.scans.entries()) {
-        const ment = r => [mentionIn(r, d.text) ? `💬 ${mentionIn(r, d.text)}` : '', mentionIn(r, d.reasoning) ? `🧠 ${mentionIn(r, d.reasoning)}` : ''].filter(Boolean).join(' ');
+        const ment = r => [mentionIn(r, d.text) ? `💬 ${mentionIn(r, d.text)}` : '', mentionIn(r, d.reasoning) ? `🧠 ${mentionIn(r, d.reasoning)}` : ''].filter(Boolean).join(' '); // slop-ok: Markdown report text, no icon font there
         L.push(`${h2} World Info${d.scans.length > 1 ? ` — สแกนครั้งที่ ${n + 1}` : ''} (${GEN_TH[sc.genType] ?? sc.genType}, ${fmtTime(sc.ts)})`, '');
         L.push(`ติด ${sc.hits.length} · สแกน ${sc.loops} รอบ${sc.overflow ? ' · **งบ token เต็ม**' : ''}`, '');
         L.push(`${h3} เอนทรีที่ติด`, '');
@@ -2577,7 +2579,7 @@ async function messageReportMarkdown(i, sw, { heading = '#' } = {}) {
             L.push('| | เอนทรี | Lorebook | ตำแหน่ง | คีย์ / สาเหตุ | เจอที่ | บริบท | คำตอบพูดถึง |', '|---|---|---|---|---|---|---|---|');
             for (const h of sc.hits) {
                 const why = h.reason === 'keyword' && h.prim
-                    ? `${h.prim.key}${h.sec?.filter(x => x.ok).length ? ` + ${h.sec.filter(x => x.ok).map(x => x.key).join(', ')}` : ''}${primWarn(h.prim) ? ' ⚠ อาจติดกลางคำอื่น' : ''}`
+                    ? `${h.prim.key}${h.sec?.filter(x => x.ok).length ? ` + ${h.sec.filter(x => x.ok).map(x => x.key).join(', ')}` : ''}${primWarn(h.prim) ? ' ⚠ อาจติดกลางคำอื่น' : ''}` // slop-ok: Markdown report text, no icon font there
                     : REASON[h.reason]?.th ?? h.reason;
                 L.push(`| ${REASON[h.reason]?.icon ?? ''}${h.loop > 1 && h.state !== 3 ? ` R${h.loop}` : ''} | ${cellMd(h.title)} | ${cellMd(h.world)} | ${cellMd(posLabel(h))} | ${cellMd(why)} | ${cellMd(h.reason === 'keyword' ? srcLabel(h.prim?.src) : '')} | ${cellMd(h.prim?.snip?.join('') ?? '')} | ${cellMd(ment(h))} |`);
             }
@@ -2588,7 +2590,7 @@ async function messageReportMarkdown(i, sw, { heading = '#' } = {}) {
         if (miss.length) {
             L.push('| เอนทรี | Lorebook | เหตุผล | คีย์ที่ตรง | คีย์รอง | เจอที่ | คำตอบพูดถึง |', '|---|---|---|---|---|---|---|');
             for (const r of miss) {
-                L.push(`| ${cellMd(r.title)} | ${cellMd(r.world)} | ${cellMd((WHY[r.why] ?? WHY.other).th)}${r.group ? ` (${cellMd(r.group)})` : ''} | ${cellMd(r.prim?.key ?? '')} | ${cellMd(r.sec ? `${LOGIC[r.logic] ?? ''}: ${r.sec.map(x => `${x.ok ? '✓' : '✗'}${x.key}`).join(', ')}` : '')} | ${cellMd(srcLabel(r.prim?.src))} | ${cellMd(ment(r))}${ment(r) ? ' ⚠ ไม่ได้เข้า prompt' : ''} |`);
+                L.push(`| ${cellMd(r.title)} | ${cellMd(r.world)} | ${cellMd((WHY[r.why] ?? WHY.other).th)}${r.group ? ` (${cellMd(r.group)})` : ''} | ${cellMd(r.prim?.key ?? '')} | ${cellMd(r.sec ? `${LOGIC[r.logic] ?? ''}: ${r.sec.map(x => `${x.ok ? '✓' : '✗'}${x.key}`).join(', ')}` : '')} | ${cellMd(srcLabel(r.prim?.src))} | ${cellMd(ment(r))}${ment(r) ? ' ⚠ ไม่ได้เข้า prompt' : ''} |`); // slop-ok: Markdown report text, no icon font there
             }
         } else L.push(sc.near == null ? '_กำลังวิเคราะห์_' : '_ไม่มี_');
         L.push('');
@@ -3182,7 +3184,7 @@ async function init() {
     if (document.getElementById('ll_button')) return;
     // สีที่อ่านออกเสมอ: แผงข้อมูลทึบ สีเน้นตัดกับพื้นจริง (ดู theme-palette.js)
     // ปุ่มลอยแบบ "ปรับตามธีม" ก็ดึงสีจากชุดนี้ (float-colors.js) แล้วคำนวณใหม่เมื่อเปลี่ยนธีม
-    try { palette = installThemePalette({ prefix: 'll' }); palette.onChange(() => applyLook()); } catch (err) { console.warn(LOG, 'theme palette', err); }
+    try { palette = installThemePalette({ prefix: 'll', colors: { 'bad-text': '#e5484d', 'warn-text': '#f5a524' } }); palette.onChange(() => applyLook()); } catch (err) { console.warn(LOG, 'theme palette', err); }
     settings();
     try { WI = await import('../../../world-info.js'); } catch (err) { console.warn(LOG, 'world-info.js not found; using defaults', err); }
     try { RX = await import('../../regex/engine.js'); } catch { RX = null; }
