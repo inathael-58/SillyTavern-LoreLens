@@ -25,7 +25,7 @@ const DB_NAME = 'LoreLens';
 const DB_STORE = 'chats';
 const MAX_CHATS = 40;
 const EDGE = 8;
-const VERSION = '1.5.2'; // keep in sync with manifest.json
+const VERSION = '1.5.3'; // keep in sync with manifest.json
 const BASE_URL = new URL('.', import.meta.url);
 
 const DEFAULTS = Object.freeze({
@@ -84,11 +84,13 @@ const ICONS = [
 const LOGIC = ['AND ANY', 'NOT ALL', 'NOT ANY', 'AND ALL'];
 const LOGIC_TH = ['มีคีย์รองอย่างน้อย 1', 'ขาดคีย์รองอย่างน้อย 1', 'ไม่มีคีย์รองเลย', 'มีคีย์รองครบทุกตัว'];
 
-// fa: the icon in the panel. icon: the same reason in the copied Markdown report, which is
-// plain text and has no icon font (slop-ok on those lines).
+// fa: the icon in the panel. dot: keyword / constant are drawn as ST's own green / blue dots
+// (🟢 / 🔵 in ST's World Info), which users read at a glance, so they stay dots, not glyphs.
+// icon: the same reason in the copied Markdown report, which is plain text and has no icon
+// font (slop-ok on those lines).
 const REASON = {
-    keyword: { fa: 'fa-solid fa-magnifying-glass', icon: '🟢', th: 'คีย์เวิร์ด' }, // slop-ok: Markdown report only
-    constant: { fa: 'fa-solid fa-infinity', icon: '🔵', th: 'ค่าคงที่ (constant)' }, // slop-ok: Markdown report only
+    keyword: { dot: 'key', fa: 'fa-solid fa-magnifying-glass', icon: '🟢', th: 'คีย์เวิร์ด' }, // slop-ok: Markdown report only
+    constant: { dot: 'const', fa: 'fa-solid fa-infinity', icon: '🔵', th: 'ค่าคงที่ (constant)' }, // slop-ok: Markdown report only
     sticky: { fa: 'fa-solid fa-thumbtack', icon: '📌', th: 'ค้าง (sticky) จากรอบก่อน' }, // slop-ok: Markdown report only
     forced: { fa: 'fa-solid fa-bolt', icon: '⚡', th: 'ถูกสั่งให้ติด (vector / extension)' }, // slop-ok: Markdown report only
     vector: { fa: 'fa-solid fa-link', icon: '🔗', th: 'vector' }, // slop-ok: Markdown report only
@@ -1851,9 +1853,11 @@ function keyChips(rec) {
     return chips.join('');
 }
 
+const reasonIcon = r => r.dot ? `<i class="ll_dot ll_dot_${r.dot}" aria-hidden="true"></i>` : `<i class="${r.fa}"></i>`;
+
 function reasonBadge(rec) {
     const r = REASON[rec.reason] ?? REASON.unknown;
-    return `<span class="ll_reason" title="${esc(r.th)}"><i class="${r.fa}"></i></span>`;
+    return `<span class="ll_reason" title="${esc(r.th)}">${reasonIcon(r)}</span>`;
 }
 
 function hitRowHTML(rec, kind) {
@@ -1976,7 +1980,7 @@ function render() {
         const link = at >= 0
             ? `<div class="ll_msglink" role="button" tabindex="0" data-act="rep-open" data-i="${at}" data-s="${scan.msg.swipe}"><i class="fa-solid fa-reply fa-flip-horizontal"></i> คำตอบที่ได้: ข้อความ #${at}${scan.msg.swipe ? ` · swipe ${scan.msg.swipe + 1}` : ''}<span>ดูรายงาน <i class="fa-solid fa-chevron-right"></i></span></div>`
             : '';
-        body.innerHTML = `${link}<div class="ll_summary">${summary.join('')}<span class="ll_legend" title="ไอคอนหน้าเอนทรี: แว่นขยาย = คีย์เวิร์ด · อินฟินิตี้ = constant · หมุด = sticky · สายฟ้า = ถูกสั่งให้ติด · โซ่ = vector · R2 = ติดจาก recursion รอบที่ 2">?</span></div>${list}`;
+        body.innerHTML = `${link}<div class="ll_summary">${summary.join('')}<span class="ll_legend" title="ไอคอนหน้าเอนทรี: จุดเขียว = คีย์เวิร์ด · จุดน้ำเงิน = constant (สีเดียวกับในหน้า World Info ของ ST) · หมุด = sticky · สายฟ้า = ถูกสั่งให้ติด · โซ่ = vector · R2 = ติดจาก recursion รอบที่ 2">?</span></div>${list}`;
     } else {
         if (scan.near == null) {
             body.innerHTML = '<div class="ll_empty ll_small"><i class="fa-solid fa-spinner fa-spin"></i> กำลังวิเคราะห์…</div>';
@@ -2249,8 +2253,8 @@ function renderStatsList() {
         a.src.user ? `<span><i class="fa-solid fa-user"></i> ${a.src.user}</span>` : '',
         a.src.bot ? `<span><i class="fa-solid fa-robot"></i> ${a.src.bot}</span>` : '',
         a.src.rec ? `<span><i class="fa-solid fa-arrows-rotate"></i> ${a.src.rec}</span>` : '',
-        a.reasons.constant ? `<span title="${REASON.constant.th}"><i class="${REASON.constant.fa}"></i> ${a.reasons.constant}</span>` : '',
-        a.reasons.sticky ? `<span title="${REASON.sticky.th}"><i class="${REASON.sticky.fa}"></i> ${a.reasons.sticky}</span>` : '',
+        a.reasons.constant ? `<span title="${REASON.constant.th}">${reasonIcon(REASON.constant)} ${a.reasons.constant}</span>` : '',
+        a.reasons.sticky ? `<span title="${REASON.sticky.th}">${reasonIcon(REASON.sticky)} ${a.reasons.sticky}</span>` : '',
     ].join('');
     const unused = a => (a.keys ?? []).filter(k => !a.keyCount[subst(k).trim()]);
 
