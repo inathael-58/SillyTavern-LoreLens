@@ -363,6 +363,16 @@
 #ll_sheet .ll_row_head:active { background: var(--ll-soft); }
 #ll_sheet .ll_reason { flex-shrink: 0; width: 20px; text-align: center; font-size: 0.95em; line-height: 1.5; }
 #ll_sheet .ll_why { opacity: 0.8; font-size: 0.85em; }
+/* Keyword / constant: ST's own green and blue dots (🟢 / 🔵 in World Info), the same hues as
+   Lore Master's status dots. Fixed colors on purpose: users know them from ST, so they do not
+   follow the theme accent. The thin dark ring keeps them visible on light themes. */
+#ll_sheet .ll_dot {
+    display: inline-block; width: 0.72em; height: 0.72em; border-radius: 50%;
+    vertical-align: -0.04em; background: var(--ll-dot);
+    box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.18);
+}
+#ll_sheet .ll_dot_key { --ll-dot: #3fb950; }
+#ll_sheet .ll_dot_const { --ll-dot: #5b9dff; }
 #ll_sheet .ll_row_main { flex: 1; min-width: 0; }
 #ll_sheet .ll_row_title { font-weight: 600; overflow-wrap: anywhere; }
 #ll_sheet .ll_row_sub { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin-top: 3px; }
